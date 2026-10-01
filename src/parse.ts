@@ -1,5 +1,5 @@
-import { sanitizeDimensions, sanitizeSections, SceneStructureError } from "./guards";
-import type { SceneDeclaration, SceneResult } from "./types";
+import { SceneStructureError, sanitizeDimensions, sanitizeSections } from "./guards";
+import type { Scene } from "./types";
 
 /** 从模型原始输出里抠出 JSON：容忍 markdown 围栏与前后闲话 */
 export function extractJson(raw: string): unknown {
@@ -34,13 +34,13 @@ export function extractJson(raw: string): unknown {
 
 /** 解析 + guards 清洗的一条龙；结构错误整体抛出，单条问题软失败剔除 */
 export function parseSceneOutput(
-  scene: SceneDeclaration,
+  scene: Scene,
   raw: string,
   inputIds: ReadonlySet<string>,
-): SceneResult {
+): Record<string, unknown> {
   const json = extractJson(raw);
   if (scene.output.kind === "sections") {
-    return sanitizeSections(json, scene.output.sections, inputIds, scene.limits);
+    return sanitizeSections(json, scene.output.keys, inputIds, scene.limits);
   }
-  return sanitizeDimensions(json, scene.output.dims, inputIds);
+  return sanitizeDimensions(json, scene.output.keys, inputIds);
 }

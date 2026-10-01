@@ -7,9 +7,9 @@
 
 [English](./README.md) | [简体中文](./README.zh-CN.md)
 
-ai-kit turns your business data into validated, citation-backed, structured AI output — summaries, scores, recommendations, extractions — on top of any OpenAI-compatible API.
+ai-kit turns your business data into validated, citation-backed, structured AI output — summaries, scores, recommendations, extractions — over **any** model, through **any** SDK you already use.
 
-You declare **what the AI should do** (a scene) and **what your data means** (a semantic contract). The kit assembles the prompt, calls the model, validates the output, and returns a typed result.
+You declare **what the AI should do** (`defineScene`) and **what your data means** (the `about` contract). `runScene` assembles the prompt, calls your model function, validates the output, and returns a typed result.
 
 ## The problem it solves
 
@@ -20,47 +20,64 @@ const res = await client.chat.completions.create({ model: "gpt-4o-mini", message
 const raw = res.choices[0].message.content; // a string. And then?
 ```
 
-`raw` is a string. Everything that makes it *usable* is on you: parsing the JSON, checking the language, verifying that cited record ids actually exist, dropping malformed items, computing the numbers so the model can't invent them, caching per user, and re-checking all of it after every prompt tweak.
+`raw` is a string. Everything that makes it *usable* is on you: parsing the JSON, checking the language, verifying that cited record ids actually exist, dropping malformed items, computing the numbers so the model can't invent them, and re-checking all of it after every prompt tweak.
 
-ai-kit does that whole layer:
+ai-kit is that whole layer:
 
 ```ts
-import { defineAiScene, createOpenAiCompatibleTransport, runScene } from "ai-kit";
+import { defineScene, openai, runScene } from "ai-kit";
 
 // 1. What the AI should do, and the shape of its output
-const scene = defineAiScene({
-  id: "ticket_summary",
-  output: { kind: "sections", sections: ["summary", "actions", "risks"] },
-  prompt: { role: "You are a support-team assistant.", task: "Summarize the given tickets." },
+const summary = defineScene({
+  task: "Summarize the given support tickets.",
+  sections: ["summary", "actions", "risks"],
 });
 
-// 2. How to reach the model — any OpenAI-compatible endpoint
-const transport = createOpenAiCompatibleTransport({
-  baseUrl: "https://api.deepseek.com/v1",
-  headers: { authorization: `Bearer ${process.env.API_KEY}` },
-});
-
-// 3. Business data in, structured result out
-const result = await runScene(scene, transport, {
+// 2. Data in, validated result out
+const result = await runScene(summary, {
+  model: openai({ model: "deepseek-chat", baseURL: "https://api.deepseek.com/v1", apiKey: process.env.API_KEY }),
+  records: tickets, // [{ id: "t1", title: "Billing dispute", ... }]
   lang: "zh",
-  records: tickets, // [{ id: "t1", title: "Billing dispute", body: "...", ... }]
+  retries: 1, // validation failures are fed back to the model once
 });
 
 // result = {
 //   summary: [{ text: "Orion 提出重复发票 INV-88 的退款申请，周五升级通话。", refs: ["t1"] }],
 //   actions: [{ text: "张三负责跟进本周工单。", refs: ["t1", "t2"] }],
-//   risks:   [{ text: "staging 权限审批阻塞新成员接入。", refs: ["t3"] }]
+//   risks:   [{ text: "staging 审批阻塞新成员接入。", refs: ["t3"] }]
 // }
 ```
 
-Every `text` is one sentence, in the requested language. Every `refs` entry is a real input id — fabricated ones are dropped. Numbers come from your code, not the model.
+Every `text` is one sentence, in the requested language. Every `refs` entry is a real input id — fabricated ones are dropped, malformed items are removed, the rest survives.
+
+## Any model, any SDK
+
+The only convention is one function: `({ system, prompt }) => Promise<string>`.
+
+- **OpenAI-compatible** (OpenAI, DeepSeek, Moonshot, Ollama, vLLM) — built in: `openai({ model, baseURL?, apiKey? })`
+- **Any other SDK** — wrap your client in two lines:
+
+```ts
+import Anthropic from "@anthropic-ai/sdk";
+const anthropic = new Anthropic();
+
+const model = async ({ system, prompt }) => {
+  const r = await anthropic.messages.create({
+    model: "claude-sonnet-4-5", max_tokens: 1024, system,
+    messages: [{ role: "user", content: prompt }],
+  });
+  return r.content[0].text;
+};
+```
+
+The kit never stores keys, never wraps HTTP you didn't ask for, and never cares which SDK you picked.
 
 ## What happens inside `runScene`
 
-1. **Assemble the prompt** — role + task + seven mandatory invariants + your contract (field meanings, fallback rules, locale facts) + the records as JSON
-2. **Call the transport** — the one you provided (direct or your own backend)
+1. **Assemble the prompt** — role + task + seven mandatory invariants + your `about` contract (field meanings, fallback rules, locale facts) + the records as JSON
+2. **Call your model function**
 3. **Parse and validate** — extract the JSON, enforce the refs whitelist against input ids, drop malformed items (soft-fail), truncate over-length text
-4. **Return a typed result** — `sections` or `dimensions`, malformed structure throws instead of passing garbage through
+4. **Return a typed result** — sections or scores; on structural failure, throw (or feed the error back and retry with `retries`)
 
 The seven invariants (output language, verbatim proper nouns, program-computed stats, refs whitelist, no fabrication, compact JSON, one sentence per item) are injected into every prompt and enforced again at parse time. You can add rules; you cannot remove these.
 
@@ -69,24 +86,20 @@ The seven invariants (output language, verbatim proper nouns, program-computed s
 Write golden cases — real data snapshots + replayed model outputs + assertions, zero tokens:
 
 ```ts
-import { runCases, assertLangIs, assertRefsSubset, assertCovers } from "ai-kit/eval";
+import { evaluate, lang, refs, covers } from "ai-kit/eval";
 
-const report = await runCases([
+const report = await evaluate(summary, [
   {
     name: "zh mode outputs Chinese + citations legal",
     lang: "zh",
-    input: { records: snapshot },
-    mockOutput: mockModelJson,
-    asserts: [assertLangIs("zh"), assertRefsSubset(ids), assertCovers(["rollback"])],
+    records: snapshot,
+    mock: mockModelJson,
+    assert: [lang("zh"), refs(ids), covers(["rollback"])],
   },
-], { scene });
+]);
 ```
 
 Run them in CI. From now on, every prompt tweak or model swap is a seconds-level regression.
-
-## Building a UI?
-
-`createSceneController` adds the app layer on top of `runScene`: cache keyed by identity + scope + content + language, debounce, single-flight, no-cache-on-fail, and a subscribable state machine (`idle | empty | pending | ok | error`). Framework-free — render `state.result` in Vue, React, or anything else. See the [guide](./docs/guide.md).
 
 ## Getting started
 
@@ -94,13 +107,13 @@ Run them in CI. From now on, every prompt tweak or model swap is a seconds-level
 npm install ai-kit
 ```
 
-Full walkthrough — contracts, controllers, evals: **[guide.md](./docs/guide.md)** · [简体中文](./docs/guide.zh-CN.md)
+Full walkthrough — contracts, output kinds, evals, retries: **[guide.md](./docs/guide.md)** · [简体中文](./docs/guide.zh-CN.md)
 
 ## Development
 
 ```bash
 pnpm install
-pnpm test       # 44 tests, including the 5-case golden gate
+pnpm test       # 41 tests, including the 5-case golden gate
 pnpm build      # tsdown: esm + cjs + d.ts
 pnpm typecheck
 ```

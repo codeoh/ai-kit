@@ -2,17 +2,16 @@
 
 > Language: [English](./guide.md) | [简体中文](./guide.zh-CN.md)
 
-This is the full integration walkthrough. The consumer's entire job fits in five decisions:
+The full integration walkthrough. The public API is four functions:
 
-> Review rule: any decision you cannot make without reading the source code is a design flaw.
+| Export | Purpose |
+|---|---|
+| `defineScene({...})` | Declare once: what the AI does, the output shape, the optional contract |
+| `runScene(scene, { model, records, lang, retries? })` | Call: data in, validated result out |
+| `openai({ model, baseURL?, apiKey? })` | Built-in model helper for any OpenAI-compatible endpoint |
+| `evaluate(scene, cases)` | Golden-case quality gate (from `ai-kit/eval`) |
 
-| # | Decision | Entry point |
-|---|---|---|
-| 1 | How to reach the model? | Three options: `createOpenAiCompatibleTransport({ baseUrl, headers })` — direct to any OpenAI-compatible endpoint (OpenAI / DeepSeek / Moonshot / Ollama / vLLM…); `createApiTransport(send)` — through your backend proxy; or implement `AiTransport` yourself. The kit never stores keys — where they live is your call |
-| 2 | Where to cache results? | `createMemoryStore()` (default/testing) or `createLocalStorageStore(prefix?)` (browser persistence) |
-| 3 | What does the AI do and return? | `defineAiScene({ id, output, prompt })` — ~40 lines |
-| 4 | What do your fields mean? | `DataProfile` file kept in **your** repo (`profiles/<entity>.json`) |
-| 5 | How is quality gated? | Seven mandatory invariants (cannot be disabled) + `runCases` golden eval (zero tokens) |
+The model itself is the only convention: a function `({ system, prompt }) => Promise<string>`. Any SDK adapts in two lines.
 
 ## Walkthrough (~30 minutes)
 
@@ -24,7 +23,7 @@ npm install ai-kit
 
 Node >= 18. Runs in browsers and Node; TypeScript types included.
 
-### Step 1: declare a semantic contract
+### Step 1: declare the semantic contract
 
 Create `profiles/ticket.json` — this teaches the AI what your data means:
 
@@ -32,13 +31,13 @@ Create `profiles/ticket.json` — this teaches the AI what your data means:
 {
   "entity": "ticket",
   "fields": [
-    { "name": "id", "meaning": "Ticket unique id, the only legal value for refs", "authoritative": true },
+    { "name": "id", "meaning": "Ticket unique id, the only legal value for refs" },
     { "name": "title", "meaning": "Ticket title" },
     { "name": "body", "meaning": "Ticket body, may be written in English" },
     { "name": "status", "meaning": "Ticket status", "dict": "open | pending | closed" },
-    { "name": "team", "meaning": "Owning team name, the grouping key", "authoritative": true },
-    { "name": "assignee", "meaning": "Assignee person name, proper-noun protected", "authoritative": true, "pii": true },
-    { "name": "slaHours", "meaning": "Resolved SLA in hours", "fallback": "List API does not return this field; compute it from createdAt/resolvedAt on the client. Never let the model guess numbers." }
+    { "name": "team", "meaning": "Owning team name, the grouping key" },
+    { "name": "assignee", "meaning": "Assignee person name, proper-noun protected", "pii": true },
+    { "name": "slaHours", "meaning": "Resolved SLA in hours", "fallback": "List API does not return this field; compute it on the client. Never let the model guess numbers." }
   ],
   "unavailable": ["Cross-system customer identity mapping"],
   "localeFacts": [
@@ -49,100 +48,120 @@ Create `profiles/ticket.json` — this teaches the AI what your data means:
 
 What each annotation buys you:
 
-- `meaning` — injected into every system prompt for this entity
-- `authoritative` — marks the field the AI should trust for grouping/attribution
-- `fallback` — tells the AI (and your grouping code) what to do when a field is missing
-- `pii` — reserved for masking strategies before the prompt leaves the client
+- `meaning` — injected into every system prompt for this scene
+- `fallback` — tells the AI what to do when a field is missing
+- `pii` — reserved for masking strategies before the prompt leaves your code
 - `unavailable` — capabilities that don't exist yet, so the AI never cites them
 - `localeFacts` — environment truths the AI cannot discover on its own
 
-### Step 2: declare a scene
+### Step 2: declare the scene
 
 One AI feature = one declaration:
 
 ```ts
-import { defineAiScene, validateDataProfile, type DataProfile } from "ai-kit";
+import { defineScene, validateDataProfile, type DataProfile } from "ai-kit";
 import ticketProfileJson from "../profiles/ticket.json";
 
 const ticketProfile: DataProfile = validateDataProfile(ticketProfileJson);
 
-export const ticketSummary = defineAiScene({
-  id: "ticket_summary",                          // lowercase_with_underscores
-  output: { kind: "sections", sections: ["summary", "actions", "risks"] },
-  prompt: { role: "You are a support-team assistant.", task: "Summarize the given tickets." },
-  profile: ticketProfile,
-  cache: { ttlMs: 7 * 864e5, schemaVersion: 1 },
+export const ticketSummary = defineScene({
+  id: "ticket_summary",
+  task: "Summarize the given support tickets.",
+  sections: ["summary", "actions", "risks"],
+  about: ticketProfile,
 });
 ```
 
-Two built-in output kinds cover most single-step features:
+Two output shapes cover most single-step features:
 
-- `sections` — grouped lists: `Record<key, { text: string; refs: string[] }[]>`
-- `dimensions` — scores: `Record<key, { score: number; reason: string; refs: string[] }>`
+- `sections: ["summary", "actions", "risks"]` → `Record<key, { text: string; refs: string[] }[]>`
+- `scores: ["severity", "urgency"]` → `Record<key, { score: number; reason: string; refs: string[] }>`
 
 Multi-turn chat is out of scope by design.
 
-### Step 3: wire the controller and render
+### Step 3: choose a model
+
+OpenAI-compatible endpoints (OpenAI, DeepSeek, Moonshot, Ollama, vLLM) are built in:
 
 ```ts
-import { createApiTransport, createLocalStorageStore, createSceneController } from "ai-kit";
+import { openai } from "ai-kit";
 
-const ctrl = createSceneController({
-  scene: ticketSummary,
-  // Option A: direct — one line, any OpenAI-compatible endpoint:
-  // transport: createOpenAiCompatibleTransport({ baseUrl: "https://api.deepseek.com/v1", headers: { authorization: `Bearer ${key}` } })
-  // Option B: through your backend (recommended for multi-user production, so keys stay server-side):
-  transport: createApiTransport(async (req) => {
-    const r = await fetch("/api/ai-chat", { method: "POST", body: JSON.stringify(req) }).then((x) => x.json());
-    return { content: r.content, truncated: r.truncated };
-  }),
-  store: createLocalStorageStore("myapp:"),
-  identity: () => user.id,                       // cache-key only, never in prompt
-  scope: () => teamName,                         // cache-key only
-  lang: () => (locale === "en" ? "en" : "zh"),   // normalization is your job; the kit never guesses
-  records: () => normalizeRows(tickets),         // empty array short-circuits to `empty`
-  stats: computeStats,                           // numbers are computed by code, never by the model
+const model = openai({
+  model: "deepseek-chat",
+  baseURL: "https://api.deepseek.com/v1",
+  apiKey: process.env.API_KEY,
 });
-
-ctrl.subscribe((state) => {
-  // state.status: idle | empty | pending | ok | error
-  if (state.status === "ok") render(state.result); // refs render as clickable citations
-});
-ctrl.refresh();                                  // refresh(true) bypasses the cache
 ```
 
-Controller behavior you get for free:
-
-- **Cache first** — key = identity | scope | content hash | language | schemaVersion; TTL from the scene
-- **Debounce** — bursts of refresh calls collapse into one generation (default 1500ms)
-- **Single-flight** — stale generations are discarded, never overwrite newer results
-- **No cache on failure** — a failed generation is retried on the next trigger
-- **Soft-fail** — malformed items are dropped, valid ones survive; only structural failures error out
-
-> Security note: direct browser transport puts your API key in the client — fine for local tools, internal apps and prototypes; for multi-user production, proxy through your backend instead.
-
-### Step 4: gate quality with a golden eval
-
-Create `evals/ticketSummary.golden.test.ts` — real data snapshots + replayed model outputs + assertions:
+Any other SDK — wrap your client in two lines:
 
 ```ts
-import { runCases, assertLangIs, assertRefsSubset, assertCovers } from "ai-kit/eval";
+import Anthropic from "@anthropic-ai/sdk";
+const anthropic = new Anthropic();
 
-const report = await runCases([
+const model = async ({ system, prompt }) => {
+  const r = await anthropic.messages.create({
+    model: "claude-sonnet-4-5", max_tokens: 1024, system,
+    messages: [{ role: "user", content: prompt }],
+  });
+  return r.content[0].text;
+};
+
+// Vercel ai SDK:
+import { generateText } from "ai";
+const model2 = ({ system, prompt }) =>
+  generateText({ model: "openai/gpt-5.2", system, prompt }).then((r) => r.text);
+
+// Your own backend:
+const model3 = ({ system, prompt }) =>
+  fetch("/api/ai-chat", { method: "POST", body: JSON.stringify({ system, prompt }) })
+    .then((r) => r.json())
+    .then((r) => r.content);
+```
+
+> Direct browser usage puts the API key in the client — fine for local tools, internal apps and prototypes; for multi-user production, route through your backend.
+
+### Step 4: run
+
+```ts
+import { runScene } from "ai-kit";
+
+const result = await runScene(ticketSummary, {
+  model,
+  records: tickets,                 // each record needs an `id` for refs
+  lang: "zh",                       // default "en"
+  stats: computeStats,              // numbers computed by code, never by the model
+  retries: 1,                       // validation failure -> feed error back, retry once
+});
+```
+
+What you get for free inside `runScene`:
+
+- **Prompt assembly** — role + task + seven mandatory invariants + your contract + the records
+- **Refs whitelist** — fabricated citation ids are dropped against the input id set
+- **Soft-fail** — malformed items dropped, valid ones survive; only structural failures throw
+- **Self-correction** — with `retries`, the validation error is fed back to the model for a fixed attempt
+
+### Step 5: gate quality with golden cases
+
+```ts
+import { evaluate, lang, refs, covers } from "ai-kit/eval";
+
+const report = await evaluate(ticketSummary, [
   {
     name: "zh mode outputs Chinese + citations legal",
     lang: "zh",
-    input: { records: snapshot },                 // real data snapshot
-    mockOutput: mockModelJson,                    // replayed model output, zero tokens
-    asserts: [assertLangIs("zh"), assertRefsSubset(ids), assertCovers(["rollback"])],
+    records: snapshot,                // real data snapshot
+    mock: mockModelJson,              // replayed model output, zero tokens
+    assert: [lang("zh"), refs(ids), covers(["rollback"])],
   },
   // soft-fail / structure-error / fabricated-id cases — see evals/ticket.golden.test.ts
-], { scene: ticketSummary });
-
-expect(report.passed).toBe(report.total);         // all green = integration done
+]);
 ```
 
-Built-in assertion helpers: `assertLangIs`, `assertNounsVerbatim`, `assertRefsSubset`, `assertCovers`, `assertNoError`. After this, every prompt tweak or model swap is a seconds-level regression.
+Run them in CI (`pnpm test`). Every prompt tweak or model swap is a seconds-level regression.
+
+Built-in assertion helpers: `lang`, `nouns`, `refs`, `covers`, `noError`.
 
 ## The seven mandatory invariants
 
@@ -162,6 +181,6 @@ One shared asset: the semantic contract. `ai-kit` injects it into prompts; an MC
 
 ## Versioning policy
 
-- `DataProfile` format or output-contract change → **major**
-- New guards / assertion helpers → **minor**
+- `about` contract format or output-shape change → **major**
+- New assertion helpers / guards → **minor**
 - Prompt wording changes → **patch**, and must pass the golden gate before release

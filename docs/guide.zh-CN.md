@@ -2,17 +2,16 @@
 
 > 语言：[English](./guide.md) | [简体中文](./guide.zh-CN.md)
 
-这是完整的接入 walkthrough。消费方要做的事总共就是五个决定：
+完整的接入 walkthrough。公共 API 一共 4 个函数：
 
-> 评审口径：任何需要读源码或问人才能做出的决定，都是设计缺陷。
+| 导出 | 用途 |
+|---|---|
+| `defineScene({...})` | 声明一次：AI 做什么、输出什么形状、可选契约 |
+| `runScene(scene, { model, records, lang, retries? })` | 调用：数据进，校验过的结果出 |
+| `openai({ model, baseURL?, apiKey? })` | 内置模型帮助函数，任意 OpenAI 兼容端点 |
+| `evaluate(scene, cases)` | golden case 质量门禁（来自 `ai-kit/eval`） |
 
-| # | 你要决定的事 | 包内对应入口 |
-|---|---|---|
-| 1 | 怎么连模型？ | 三选一：`createOpenAiCompatibleTransport({ baseUrl, headers })` 直连任意 OpenAI 兼容端点（OpenAI / DeepSeek / Moonshot / Ollama / vLLM…）；`createApiTransport(send)` 走你的后端代理；或自己实现 `AiTransport`。包永不存储 key——key 放哪由你决定 |
-| 2 | 结果存哪里？ | `createMemoryStore()`（默认/测试）或 `createLocalStorageStore(prefix?)`（浏览器持久化） |
-| 3 | AI 做什么、返回什么？ | `defineAiScene({ id, output, prompt })` —— 约 40 行 |
-| 4 | 你的字段什么含义？ | `DataProfile` 档案文件，放在**你自己的**仓库（`profiles/<entity>.json`） |
-| 5 | 质量怎么保证？ | 七条强制不变量（不可关）+ `runCases` golden eval（零 token） |
+模型本身是唯一约定：一个函数 `({ system, prompt }) => Promise<string>`。任何 SDK 两行适配。
 
 ## 接入步骤（约 30 分钟）
 
@@ -32,12 +31,12 @@ Node >= 18；浏览器与 Node 均可运行；含 TypeScript 类型。
 {
   "entity": "ticket",
   "fields": [
-    { "name": "id", "meaning": "工单唯一 id，refs 的唯一合法取值", "authoritative": true },
+    { "name": "id", "meaning": "工单唯一 id，refs 的唯一合法取值" },
     { "name": "title", "meaning": "工单标题" },
     { "name": "body", "meaning": "工单正文，可能是英文" },
     { "name": "status", "meaning": "工单状态", "dict": "open | pending | closed" },
-    { "name": "team", "meaning": "所属团队名，归组键", "authoritative": true },
-    { "name": "assignee", "meaning": "负责人人名，专有名词保护对象", "authoritative": true, "pii": true },
+    { "name": "team", "meaning": "所属团队名，归组键" },
+    { "name": "assignee", "meaning": "负责人人名，专有名词保护对象", "pii": true },
     { "name": "slaHours", "meaning": "解决 SLA 小时数", "fallback": "列表接口不返回该字段，由客户端从 createdAt/resolvedAt 计算，禁止让模型猜数字" }
   ],
   "unavailable": ["跨系统客户身份关联"],
@@ -47,10 +46,9 @@ Node >= 18；浏览器与 Node 均可运行；含 TypeScript 类型。
 
 每种标注买到什么：
 
-- `meaning` —— 注入该实体的每个 system prompt
-- `authoritative` —— 标记 AI 归组/归因时应信任的字段
-- `fallback` —— 告诉 AI（和你的归组代码）字段缺失时怎么办
-- `pii` —— 预留：prompt 离开客户端前的脱敏策略
+- `meaning` —— 注入该场景的每个 system prompt
+- `fallback` —— 告诉 AI 字段缺失时怎么办
+- `pii` —— 预留：prompt 离开你的代码前的脱敏策略
 - `unavailable` —— 还不存在的能力，AI 永远不会拿它归因
 - `localeFacts` —— AI 自己发现不了的环境事实
 
@@ -59,88 +57,109 @@ Node >= 18；浏览器与 Node 均可运行；含 TypeScript 类型。
 一个 AI 功能 = 一份声明：
 
 ```ts
-import { defineAiScene, validateDataProfile, type DataProfile } from "ai-kit";
+import { defineScene, validateDataProfile, type DataProfile } from "ai-kit";
 import ticketProfileJson from "../profiles/ticket.json";
 
 const ticketProfile: DataProfile = validateDataProfile(ticketProfileJson);
 
-export const ticketSummary = defineAiScene({
-  id: "ticket_summary",                          // 小写下划线
-  output: { kind: "sections", sections: ["summary", "actions", "risks"] },
-  prompt: { role: "你是支持团队助手。", task: "归纳给定的工单。" },
-  profile: ticketProfile,
-  cache: { ttlMs: 7 * 864e5, schemaVersion: 1 },
+export const ticketSummary = defineScene({
+  id: "ticket_summary",
+  task: "归纳这些支持工单。",
+  sections: ["summary", "actions", "risks"],
+  about: ticketProfile,
 });
 ```
 
-两种内置输出契约覆盖大多数单步场景：
+两种输出形状覆盖大多数单步场景：
 
-- `sections` —— 分组列表：`Record<key, { text: string; refs: string[] }[]>`
-- `dimensions` —— 评分：`Record<key, { score: number; reason: string; refs: string[] }>`
+- `sections: ["summary", "actions", "risks"]` → `Record<key, { text: string; refs: string[] }[]>`
+- `scores: ["severity", "urgency"]` → `Record<key, { score: number; reason: string; refs: string[] }>`
 
 多轮对话**设计上不在范围内**。
 
-### 第 3 步：接控制器并渲染
+### 第 3 步：选择模型
+
+OpenAI 兼容端点（OpenAI、DeepSeek、Moonshot、Ollama、vLLM）开箱即用：
 
 ```ts
-import { createApiTransport, createLocalStorageStore, createSceneController } from "ai-kit";
+import { openai } from "ai-kit";
 
-const ctrl = createSceneController({
-  scene: ticketSummary,
-  // 方式 A：直连——一行搞定，任意 OpenAI 兼容端点：
-  // transport: createOpenAiCompatibleTransport({ baseUrl: "https://api.deepseek.com/v1", headers: { authorization: `Bearer ${key}` } })
-  // 方式 B：走后端代理（多用户生产环境推荐，key 留在服务端）：
-  transport: createApiTransport(async (req) => {
-    const r = await fetch("/api/ai-chat", { method: "POST", body: JSON.stringify(req) }).then((x) => x.json());
-    return { content: r.content, truncated: r.truncated };
-  }),
-  store: createLocalStorageStore("myapp:"),
-  identity: () => user.id,                       // 只进缓存键，不进 prompt
-  scope: () => teamName,                         // 只进缓存键
-  lang: () => (locale === "zh-CN" ? "zh" : "en"), // 归一化是你的责任，包不做猜测
-  records: () => normalizeRows(tickets),         // 空数组自动短路为 empty
-  stats: computeStats,                           // 数字一律程序统计，禁止模型产出
+const model = openai({
+  model: "deepseek-chat",
+  baseURL: "https://api.deepseek.com/v1",
+  apiKey: process.env.API_KEY,
 });
-
-ctrl.subscribe((state) => {
-  // state.status: idle | empty | pending | ok | error
-  if (state.status === "ok") render(state.result); // refs 渲染成可点角标溯源
-});
-ctrl.refresh();                                  // refresh(true) 绕过缓存强制重算
 ```
 
-控制器白送的行为：
-
-- **缓存优先**——键 = 身份 | 范围 | 内容哈希 | 语言 | schemaVersion；TTL 由场景声明
-- **防抖合并**——密集的 refresh 合并成一次生成（默认 1500ms）
-- **单在途**——过期生成直接作废，绝不覆盖新结果
-- **失败不写缓存**——失败结果下次触发自动重试
-- **软失败**——坏条目剔除、好条目保留；只有结构错误才整体报错
-
-> 安全提示：直连方式会把 API key 暴露在客户端——本地工具、内网应用、原型没问题；多用户生产环境请改走后端代理。
-
-### 第 4 步：上 golden eval 质量门禁
-
-新建 `evals/ticketSummary.golden.test.ts`——真实数据快照 + 回放模型输出 + 断言：
+其他任何 SDK——两行包装你自己的 client：
 
 ```ts
-import { runCases, assertLangIs, assertRefsSubset, assertCovers } from "ai-kit/eval";
+import Anthropic from "@anthropic-ai/sdk";
+const anthropic = new Anthropic();
 
-const report = await runCases([
+const model = async ({ system, prompt }) => {
+  const r = await anthropic.messages.create({
+    model: "claude-sonnet-4-5", max_tokens: 1024, system,
+    messages: [{ role: "user", content: prompt }],
+  });
+  return r.content[0].text;
+};
+
+// Vercel ai SDK：
+import { generateText } from "ai";
+const model2 = ({ system, prompt }) =>
+  generateText({ model: "openai/gpt-5.2", system, prompt }).then((r) => r.text);
+
+// 你自己的后端：
+const model3 = ({ system, prompt }) =>
+  fetch("/api/ai-chat", { method: "POST", body: JSON.stringify({ system, prompt }) })
+    .then((r) => r.json())
+    .then((r) => r.content);
+```
+
+> 安全提示：在浏览器里直连会把 API key 暴露在客户端——本地工具、内网应用、原型没问题；多用户生产环境请路由到自己的后端。
+
+### 第 4 步：调用
+
+```ts
+import { runScene } from "ai-kit";
+
+const result = await runScene(ticketSummary, {
+  model,
+  records: tickets,                 // 每条记录需要 id 供 refs 引用
+  lang: "zh",                       // 默认 "en"
+  stats: computeStats,              // 数字由代码计算，模型只管措辞
+  retries: 1,                       // 校验失败 → 错误喂回模型重试一次
+});
+```
+
+`runScene` 内部白送的东西：
+
+- **Prompt 组装**——角色 + 任务 + 七条强制不变量 + 你的契约 + 记录数据
+- **refs 白名单**——编造的引用 id 对照输入 id 集被剔除
+- **软失败**——坏条目剔除、好条目保留；只有结构错误才整体抛出
+- **自校验重试**——`retries > 0` 时，校验错误喂回模型修正重试
+
+### 第 5 步：上 golden 门禁
+
+```ts
+import { evaluate, lang, refs, covers } from "ai-kit/eval";
+
+const report = await evaluate(ticketSummary, [
   {
     name: "中文模式输出中文 + 引用合法",
     lang: "zh",
-    input: { records: snapshot },                 // 真实数据快照
-    mockOutput: mockModelJson,                    // 回放模型输出，零 token
-    asserts: [assertLangIs("zh"), assertRefsSubset(ids), assertCovers(["回滚"])],
+    records: snapshot,                // 真实数据快照
+    mock: mockModelJson,              // 回放模型输出，零 token
+    assert: [lang("zh"), refs(ids), covers(["回滚"])],
   },
   // 软失败 / 结构错误 / 编造 id 等用例，见 evals/ticket.golden.test.ts
-], { scene: ticketSummary });
-
-expect(report.passed).toBe(report.total);         // 全绿 = 接入完成
+]);
 ```
 
-内置断言助手：`assertLangIs`、`assertNounsVerbatim`、`assertRefsSubset`、`assertCovers`、`assertNoError`。从此改提示词、换模型，都是秒级回归。
+跑进 CI（`pnpm test`）。从此改提示词、换模型，都是秒级回归。
+
+内置断言助手：`lang`、`nouns`、`refs`、`covers`、`noError`。
 
 ## 七条强制不变量
 
@@ -160,6 +179,6 @@ expect(report.passed).toBe(report.total);         // 全绿 = 接入完成
 
 ## 版本策略
 
-- `DataProfile` 格式或输出契约变更 → **major**
-- 新增 guards / 断言助手 → **minor**
+- `about` 契约格式或输出形状变更 → **major**
+- 新增断言助手 / guards → **minor**
 - prompt 措辞变更 → **patch**，且发版前必须过 golden 门禁

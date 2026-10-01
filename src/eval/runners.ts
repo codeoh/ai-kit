@@ -1,24 +1,22 @@
-import type { AiTransport } from "../transport";
-import type { SceneDeclaration, SceneResult } from "../types";
-import { runScene } from "../scene";
-import { createMockTransport } from "../transport";
+import type { AiLang, Model, Scene, SceneResult } from "../types";
+import { runScene } from "../runScene";
+import { TruncatedOutputError } from "../model";
 
 export interface GoldenCase {
   name: string;
-  lang: "zh" | "en";
-  /** 本条使用的场景声明；缺省用 opts.scene */
-  scene?: SceneDeclaration;
-  input: { records: unknown[] };
-  /** 离线层：回放模型输出，测解析/校验/降级链路，零 token */
-  mockOutput?: string;
-  /** 断言失败时 throw，即计为该条失败 */
-  asserts: Array<(ctx: GoldenContext) => void>;
+  /** 缺省 "en" */
+  lang?: AiLang;
+  records: unknown[];
+  /** 回放的模型输出（字符串或按调用次序的数组），零 token */
+  mock: string | string[];
+  /** 断言；失败时 throw 即计为该条失败 */
+  assert: Array<(ctx: GoldenContext) => void>;
 }
 
 export interface GoldenContext {
-  result?: unknown;
+  result?: SceneResult;
   error?: Error;
-  input: { records: unknown[] };
+  records: unknown[];
 }
 
 export interface CaseResult {
@@ -33,11 +31,25 @@ export interface EvalReport {
   results: CaseResult[];
 }
 
+export function mockModel(mock: string | string[]): Model {
+  let i = 0;
+  return async () => {
+    if (Array.isArray(mock)) {
+      const content = mock[i] ?? "";
+      i += 1;
+      return content;
+    }
+    return mock;
+  };
+}
+
+const CJK = /[\u4e00-\u9fa5]/;
+
 function collectItems(result: unknown): Array<Record<string, unknown>> {
   const out: Array<Record<string, unknown>> = [];
   if (!result || typeof result !== "object") return out;
   for (const v of Object.values(result)) {
-    // sections：值是条目数组；dimensions：值是单个条目对象
+    // sections：值是条目数组；scores：值是单个条目对象
     if (Array.isArray(v)) {
       for (const item of v) {
         if (item && typeof item === "object") out.push(item as Record<string, unknown>);
@@ -52,10 +64,8 @@ function collectItems(result: unknown): Array<Record<string, unknown>> {
 function collectTexts(result: unknown): string[] {
   const out: string[] = [];
   for (const item of collectItems(result)) {
-    const t = item.text;
-    const r = item.reason;
-    if (typeof t === "string") out.push(t);
-    if (typeof r === "string") out.push(r);
+    if (typeof item.text === "string") out.push(item.text);
+    if (typeof item.reason === "string") out.push(item.reason);
   }
   return out;
 }
@@ -68,13 +78,12 @@ function collectRefs(result: unknown): string[] {
   return out;
 }
 
-const CJK = /[\u4e00-\u9fa5]/;
-
-export function assertLangIs(lang: "zh" | "en") {
+/** 断言：输出语言正确 */
+export function lang(expected: AiLang) {
   return ({ result }: GoldenContext): void => {
     const texts = collectTexts(result).filter((t) => t.length > 0);
     if (texts.length === 0) return;
-    if (lang === "zh") {
+    if (expected === "zh") {
       const bad = texts.filter((t) => !CJK.test(t));
       if (bad.length) throw new Error(`期望中文输出，但存在无中文的文本: ${bad[0]}`);
     } else {
@@ -84,25 +93,27 @@ export function assertLangIs(lang: "zh" | "en") {
   };
 }
 
-export function assertNounsVerbatim(nouns: string[]) {
+/** 断言：专有名词逐字保留 */
+export function nouns(list: string[]) {
   return ({ result }: GoldenContext): void => {
     const all = collectTexts(result).join("\n");
-    for (const n of nouns) {
+    for (const n of list) {
       if (!all.includes(n)) throw new Error(`专有名词未逐字保留: ${n}`);
     }
   };
 }
 
-export function assertRefsSubset(ids: string[]) {
+/** 断言：refs 全部在白名单内 */
+export function refs(ids: string[]) {
   const set = new Set(ids);
   return ({ result }: GoldenContext): void => {
-    const refs = collectRefs(result);
-    const illegal = refs.filter((r) => !set.has(r));
+    const illegal = collectRefs(result).filter((r) => !set.has(r));
     if (illegal.length) throw new Error(`存在编造的引用 id: ${illegal.join(",")}`);
   };
 }
 
-export function assertCovers(keywords: string[]) {
+/** 断言：要点覆盖 */
+export function covers(keywords: string[]) {
   return ({ result }: GoldenContext): void => {
     const all = collectTexts(result).join("\n");
     for (const k of keywords) {
@@ -111,37 +122,36 @@ export function assertCovers(keywords: string[]) {
   };
 }
 
-export function assertNoError() {
+/** 断言：没有意外报错 */
+export function noError() {
   return ({ error }: GoldenContext): void => {
     if (error) throw new Error(`意外报错: ${error.message}`);
   };
 }
 
-export interface RunCasesOptions {
-  /** 各条缺省使用的场景声明 */
-  scene?: SceneDeclaration;
-  /** 缺省用 case.mockOutput 构造 mock transport */
-  transport?: (c: GoldenCase) => AiTransport;
-}
-
-/** 离线 eval：逐条回放 -> 断言，产出报告；零 token，CI 每次提交可跑 */
-export async function runCases(cases: GoldenCase[], opts: RunCasesOptions = {}): Promise<EvalReport> {
+/**
+ * 离线 eval：逐条回放 -> 断言 -> 报告。零 token，CI 每次提交可跑。
+ */
+export async function evaluate(
+  scene: Scene,
+  cases: GoldenCase[],
+  opts: { model?: Model } = {},
+): Promise<EvalReport> {
   const results: CaseResult[] = [];
   for (const c of cases) {
-    const scene = c.scene ?? opts.scene;
-    if (!scene) throw new Error(`golden case "${c.name}" 缺少 scene`);
-    const transport = opts.transport ? opts.transport(c) : createMockTransport([c.mockOutput ?? ""]);
-    const ctx: GoldenContext = { input: c.input };
+    const model: Model = opts.model ?? mockModel(c.mock);
+    const ctx: GoldenContext = { records: c.records };
     try {
-      ctx.result = await runScene<SceneResult>(scene, transport, {
-        lang: c.lang,
-        records: c.input.records,
+      ctx.result = await runScene<SceneResult>(scene, {
+        model,
+        records: c.records,
+        lang: c.lang ?? "en",
       });
     } catch (e) {
       ctx.error = e instanceof Error ? e : new Error(String(e));
     }
     const failures: string[] = [];
-    for (const a of c.asserts) {
+    for (const a of c.assert) {
       try {
         a(ctx);
       } catch (e) {
@@ -152,3 +162,5 @@ export async function runCases(cases: GoldenCase[], opts: RunCasesOptions = {}):
   }
   return { total: cases.length, passed: results.filter((r) => r.ok).length, results };
 }
+
+export { TruncatedOutputError };

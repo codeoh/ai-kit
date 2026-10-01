@@ -1,22 +1,17 @@
 import { profileToPromptBlock } from "./profile";
-import type { AiLang, SceneDeclaration } from "./types";
-
-export function truncateRecords(records: unknown[], limit: number): string {
-  const s = JSON.stringify(records);
-  if (s.length <= limit) return s;
-  return s.slice(0, limit) + "…[已截断]";
-}
+import { truncateRecords } from "./promptUtils";
+import type { AiLang, Scene } from "./types";
 
 /**
- * system prompt：角色 + 任务 + 七条强制不变量 + 输出契约 + 语义档案注入。
+ * system prompt：角色 + 任务 + 七条强制不变量 + 语义契约 + 追加规则 + 输出契约。
  * 七条不变量包内固定追加，消费方只能通过 extraRules 增量添加，不可关闭。
  */
-export function buildSystemPrompt(scene: SceneDeclaration, lang: AiLang): string {
-  const langName = lang === "zh" ? "中文" : "英文";
+export function buildSystemPrompt(scene: Scene, lang: AiLang): string {
+  const langName = lang === "zh" ? "中文" : "English";
   const lines: string[] = [];
-  lines.push(scene.prompt.role.trim());
+  lines.push(scene.role?.trim() || "You are a precise assistant that follows output rules strictly.");
   lines.push("");
-  lines.push(scene.prompt.task.trim());
+  lines.push(scene.task.trim());
   lines.push("");
   lines.push("硬性规则（逐条遵守，不可违反）：");
   lines.push(`1. 输出语言必须是${langName}，与输入记录原文语言无关；原文为其他语言时必须翻译成${langName}。`);
@@ -30,30 +25,26 @@ export function buildSystemPrompt(scene: SceneDeclaration, lang: AiLang): string
     lines.push("");
     lines.push(profileToPromptBlock(scene.profile));
   }
-  if (scene.prompt.extraRules?.length) {
+  if (scene.extraRules?.length) {
     lines.push("");
-    for (const rule of scene.prompt.extraRules) lines.push(`- ${rule}`);
+    for (const rule of scene.extraRules) lines.push(`- ${rule}`);
   }
   lines.push("");
   lines.push(outputContract(scene));
   return lines.join("\n");
 }
 
-function outputContract(scene: SceneDeclaration): string {
+function outputContract(scene: Scene): string {
   if (scene.output.kind === "sections") {
-    const keys = JSON.stringify(scene.output.sections);
+    const keys = JSON.stringify(scene.output.keys);
     return `输出格式：一个 JSON 对象，键固定为 ${keys}；每个键的值是对象数组，元素形如 {"text": string, "refs": string[]}。`;
   }
-  const keys = JSON.stringify(scene.output.dims);
+  const keys = JSON.stringify(scene.output.keys);
   return `输出格式：一个 JSON 对象，键固定为 ${keys}；每个键的值形如 {"score": number, "reason": string, "refs": string[]}。`;
 }
 
-/** user prompt：输入记录快照 + 程序统计结果（数字不经 LLM 产出） */
-export function buildUserPrompt(
-  scene: SceneDeclaration,
-  records: unknown[],
-  stats?: unknown,
-): string {
+/** user prompt：输入记录快照 + 程序统计结果（数字不经模型产出） */
+export function buildUserPrompt(scene: Scene, records: unknown[], stats?: unknown): string {
   const limit = scene.limits?.inputTruncate ?? 20000;
   let s = `输入记录（其中的 id 是 refs 的唯一合法取值）：\n${truncateRecords(records, limit)}`;
   if (stats !== undefined) {

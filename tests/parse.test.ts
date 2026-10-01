@@ -1,8 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { extractJson, parseSceneOutput } from "../src/parse";
+import { defineScene } from "../src";
 import { filterRefIds, sanitizeDimensions, sanitizeSections, SceneStructureError, toRefIds } from "../src/guards";
 
-const ids = new Set(["a1", "a2", "a3"]);
+const ids = new Set(["t1", "t2", "t3"]);
+
+const scene = defineScene({
+  id: "demo",
+  task: "t",
+  sections: ["summary", "risks"],
+});
 
 describe("extractJson", () => {
   it("解析纯 JSON", () => {
@@ -26,19 +33,19 @@ describe("sanitizeSections", () => {
   });
   it("软失败：坏条目剔除，好条目保留", () => {
     const out = sanitizeSections(
-      { work: [null, "str", { text: "", refs: [] }, { refs: ["a1"] }, { text: "  正常  ", refs: ["a2"] }] },
+      { work: [null, "str", { text: "", refs: [] }, { refs: ["t1"] }, { text: "  正常  ", refs: ["t2"] }] },
       ["work"],
       ids,
     );
-    expect(out.work).toEqual([{ text: "正常", refs: ["a2"] }]);
+    expect(out.work).toEqual([{ text: "正常", refs: ["t2"] }]);
   });
   it("refs 白名单：编造 id 剔除，合法保留", () => {
     const out = sanitizeSections(
-      { work: [{ text: "t", refs: ["a1", "fake-9", 42, "a3"] }] },
+      { work: [{ text: "t", refs: ["t1", "fake-9", 42, "t3"] }] },
       ["work"],
       ids,
     );
-    expect(out.work[0]?.refs).toEqual(["a1", "a3"]);
+    expect(out.work[0]?.refs).toEqual(["t1", "t3"]);
   });
   it("未声明的段落键被丢弃；声明键缺失给空数组", () => {
     const out = sanitizeSections({ extra: [{ text: "x", refs: [] }] }, ["work", "plan"], ids);
@@ -65,12 +72,20 @@ describe("sanitizeDimensions", () => {
   });
 });
 
+describe("parseSceneOutput", () => {
+  it("按场景输出声明解析", () => {
+    const raw = JSON.stringify({ summary: [{ text: "ok", refs: ["t1"] }], risks: [] });
+    const out = parseSceneOutput(scene, raw, ids);
+    expect(out.summary).toEqual([{ text: "ok", refs: ["t1"] }]);
+  });
+});
+
 describe("helpers", () => {
   it("toRefIds 只收字符串", () => {
     expect(toRefIds(["a", 1, null, "b"])).toEqual(["a", "b"]);
     expect(toRefIds("nope")).toEqual([]);
   });
   it("filterRefIds 按白名单过滤", () => {
-    expect(filterRefIds(["a1", "x", "a2"], ids)).toEqual(["a1", "a2"]);
+    expect(filterRefIds(["t1", "x", "t2"], ids)).toEqual(["t1", "t2"]);
   });
 });
