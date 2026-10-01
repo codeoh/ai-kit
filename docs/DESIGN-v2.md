@@ -1,18 +1,19 @@
-# ai-kit API 设计稿 v2（重设计提案）
+# ai-kit API 设计稿 v2（已拍板，待实现）
 
-> 状态：**设计评审中，未动代码**。
+> 状态：**三项设计决定已确认（2026-10-01），可以动代码**。  
+> 决定：① 接缝 = `({ system, prompt }) => Promise<string>`（各家 SDK 都有 system/user 独立位置，一一对应）；② 缓存/控制层 v2 砍掉，纯函数 run，等真实需求回归；③ 命名动词显式：`defineScene` / `runScene` / `evaluate` / `openai`。  
 > 背景：v1 API 被否——"又臭又长，完全不知道是干啥的"、"只能用 openai 类的"。本稿基于业界四个标杆库的 API 实测模式重新设计。
 
 ---
 
 ## 1. v1 错在哪（对照批评逐条认领）
 
-| v1 设计 | 为什么错 |
-|---|---|
-| `createOpenAiCompatibleTransport` / `createApiTransport` / `AiTransport` | **发明了用户不需要的概念**。调模型这件事，openai/ai SDK/anthropic SDK 早已解决，用户手里已经有 client。我封装 HTTP 层，等于逼用户放弃熟悉的工具来学我的 |
-| `createSceneController({ scene, transport, store, identity, scope, lang, records, stats, debounceMs })` | **一个工厂塞 9 个配置项**，其中 6 个是函数。第一次看根本不知道哪些必填、哪些能删 |
-| `defineAiScene` / `runSceneOnce` / `runCases` 三套入口 | 名字长、动词乱、看不出关系 |
-| 只支持 OpenAI 兼容端点 | 把"我公司的现状"（有后端代理）当成了通用约束 |
+| v1 设计                                                                                                   | 为什么错                                                                                               |
+| ------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `createOpenAiCompatibleTransport` / `createApiTransport` / `AiTransport`                                | **发明了用户不需要的概念**。调模型这件事，openai/ai SDK/anthropic SDK 早已解决，用户手里已经有 client。我封装 HTTP 层，等于逼用户放弃熟悉的工具来学我的 |
+| `createSceneController({ scene, transport, store, identity, scope, lang, records, stats, debounceMs })` | **一个工厂塞 9 个配置项**，其中 6 个是函数。第一次看根本不知道哪些必填、哪些能删                                                      |
+| `defineAiScene` / `runSceneOnce` / `runCases` 三套入口                                                      | 名字长、动词乱、看不出关系                                                                                      |
+| 只支持 OpenAI 兼容端点                                                                                         | 把"我公司的现状"（有后端代理）当成了通用约束                                                                            |
 
 ## 2. 四个标杆库教会我们的事（2026-10 实查）
 
@@ -59,25 +60,25 @@ const res = await client.chat.completions.create({ model, messages });
 3. **数字段落 > 嵌套配置对象**——task 是字符串，sections 是字符串数组，别造 config 层级
 4. **渐进披露**——最小用法 3 行；契约、eval、缓存都是可选项，不看文档也能先跑通
 
-## 4. 新 API 全貌：核心导出只有 3 个
+## 4. 新 API 全貌：核心导出只有 4 个
 
 ```ts
-import { scene, openai, evaluate } from "ai-kit";
+import { defineScene, runScene, openai, evaluate } from "ai-kit";
 ```
 
 ### 4.1 声明 + 调用（最小用法，一眼看完）
 
 ```ts
-import { scene, openai } from "ai-kit";
+import { defineScene, openai, runScene } from "ai-kit";
 
 // 声明一次：AI 做什么、输出什么
-const summary = scene({
+const summary = defineScene({
   task: "归纳这些工单，按三个部分输出",
   sections: ["summary", "actions", "risks"],   // 决定输出形状
 });
 
 // 调用无数次：给模型、给数据
-const result = await summary.run({
+const result = await runScene(summary, {
   model: openai({ model: "deepseek-chat", baseURL: "https://api.deepseek.com/v1", apiKey: process.env.API_KEY }),
   records: tickets,        // [{ id: "t1", title: "...", body: "...", ... }]
   lang: "zh",
@@ -95,7 +96,7 @@ const result = await summary.run({
 
 ### 4.2 任意 SDK 接入（回应"只能用 openai 类的咋办"）
 
-**接缝只有一个函数**：`(req: { system: string; prompt: string }) => Promise<string>`。
+**接缝只有一个函数**：`(req: { system: string; prompt: string }) => Promise<string>`。  
 你手里已有的任何 LLM SDK，2 行变成本库的 model：
 
 ```ts
@@ -137,7 +138,7 @@ const model = async ({ system, prompt }) => {
 契约不再叫 DataProfile、不再单独一个概念，就是场景的一个参数：
 
 ```ts
-const summary = scene({
+const summary = defineScene({
   task: "归纳这些工单",
   sections: ["summary", "actions", "risks"],
   about: {
@@ -158,7 +159,7 @@ const summary = scene({
 ### 4.4 评分类场景
 
 ```ts
-const triage = scene({
+const triage = defineScene({
   task: "按四个维度评估工单的严重程度",
   scores: ["severity", "urgency", "effort", "risk"],   // 输出 {score, reason, refs}
 });
@@ -185,7 +186,7 @@ const report = await evaluate(summary, [
 ### 4.6 自校验重试（从 instructor 学的，v1 砍掉现在请回来）
 
 ```ts
-const result = await summary.run({ model, records, lang: "zh", retries: 2 });
+const result = await runScene(summary, { model, records, lang: "zh", retries: 2 });
 // refs 不合法 / JSON 结构错误 → 把错误信息喂回模型重试，最多 2 次
 ```
 
@@ -193,13 +194,13 @@ instructor 的实践证明：**校验失败喂回重试不是锦上添花，是�
 
 ## 5. v2 导出面（全部）
 
-| 导出 | 用途 | 对应 v1 的什么 |
-|---|---|---|
-| `scene({...})` | 声明场景 | defineAiScene（改名+瘦身） |
-| `scene.run({model, records, lang, retries?})` | 调用 | runSceneOnce + createSceneController 合并 |
-| `openai({model, baseURL?, apiKey?})` | OpenAI 兼容模型帮助函数（fetch 实现，~20 行） | createOpenAiCompatibleTransport |
-| `evaluate(scene, cases)` | 质量门禁 | runCases |
-| `lang/refs/covers/nouns` 断言助手 | eval 用 | 原样 |
+| 导出                                            | 用途                              | 对应 v1 的什么                               |
+| --------------------------------------------- | ------------------------------- | --------------------------------------- |
+| `defineScene({...})`                            | 声明场景                            | defineAiScene（改名+瘦身）                    |
+| `runScene(scene, {model, records, lang, retries?})` | 调用                                | runSceneOnce + createSceneController 合并     |
+| `openai({model, baseURL?, apiKey?})`          | OpenAI 兼容模型帮助函数（fetch 实现，~20 行） | createOpenAiCompatibleTransport         |
+| `evaluate(scene, cases)`                      | 质量门禁                            | runCases                                |
+| `lang/refs/covers/nouns` 断言助手                 | eval 用                          | 原样                                      |
 
 **v1 的 12 个导出 → v2 的 5 个。** 没了：AiTransport、createApiTransport、createSceneController、createMemoryStore、createLocalStorageStore、buildCacheKey、hashContent（缓存层见 §7 待定）。
 
@@ -211,7 +212,7 @@ instructor 的实践证明：**校验失败喂回重试不是锦上添花，是�
 - golden eval 离线回放（零 token）
 - 缓存键设计（身份|范围|内容|语言|版本）——机制保留，入口重设计
 
-## 7. 待你拍板的三个问题
+## 7. ~~待你拍板的三个问题~~（已全部拍板，见文首）
 
 1. **接缝形状**：`(req: { system, prompt }) => Promise<string>`（各 SDK 映射最自然，推荐）还是 `(prompt: string) => Promise<string>`（更简，但 system adherence 靠拼串）？
 2. **缓存/控制层去哪**：a) v2 先砍掉，纯 run，缓存等真实需求回来；b) 做成 `scene.cached({ store, ttl })` 可组合 wrapper。我倾向 a——先把核心打磨到"一眼会用"，缓存是第二个故事
