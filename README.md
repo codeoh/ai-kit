@@ -23,7 +23,7 @@ Because every embedded AI feature pays the same four taxes again and again:
 
 | # | Decision | Entry point |
 |---|---|---|
-| 1 | How to reach the model? | `createApiTransport(send)` — map to your backend proxy; **the kit never holds API keys** |
+| 1 | How to reach the model? | Three options: `createOpenAiCompatibleTransport({ baseUrl, headers })` — direct to any OpenAI-compatible endpoint (OpenAI / DeepSeek / Moonshot / Ollama / vLLM…); `createApiTransport(send)` — through your backend proxy; or implement `AiTransport` yourself. The kit never stores keys — where they live is your call |
 | 2 | Where to cache results? | `createMemoryStore()` or `createLocalStorageStore(prefix?)` |
 | 3 | What does the AI do and return? | `defineAiScene({ id, output, prompt })` — ~40 lines |
 | 4 | What do your fields mean? | `DataProfile` file kept in **your** repo (`profiles/<entity>.json`) |
@@ -80,8 +80,10 @@ import { createApiTransport, createLocalStorageStore, createSceneController } fr
 
 const ctrl = createSceneController({
   scene: ticketSummary,
+  // Option A: direct — one line, works with any OpenAI-compatible endpoint:
+  // transport: createOpenAiCompatibleTransport({ baseUrl: "https://api.deepseek.com/v1", headers: { authorization: `Bearer ${key}` } })
+  // Option B: through your backend (recommended for multi-user production, so keys stay server-side):
   transport: createApiTransport(async (req) => {
-    // Your backend proxy: auth, model keys and audit live server-side
     const r = await fetch("/api/ai-chat", { method: "POST", body: JSON.stringify(req) }).then((x) => x.json());
     return { content: r.content, truncated: r.truncated };
   }),
@@ -119,6 +121,8 @@ const report = await runCases([
 expect(report.passed).toBe(report.total); // all green = integration done
 ```
 
+> Direct browser transport puts your API key in the client — fine for local tools, internal apps and prototypes; for multi-user production, proxy through your backend instead.
+
 From now on, every prompt tweak or model swap is a seconds-level regression instead of a page-refresh guessing game.
 
 ## The seven mandatory invariants
@@ -141,7 +145,7 @@ One shared asset: the semantic contract. `ai-kit` injects it into prompts; an MC
 
 ```bash
 pnpm install
-pnpm test       # 39 tests, includes the 5-case golden gate
+pnpm test       # 44 tests, includes the 5-case golden gate
 pnpm build      # tsup: esm + cjs + d.ts
 pnpm typecheck
 ```

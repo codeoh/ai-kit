@@ -38,6 +38,75 @@ export function createApiTransport(
   };
 }
 
+export interface OpenAiCompatibleOptions {
+  /** e.g. "https://api.openai.com/v1" — /chat/completions is appended */
+  baseUrl: string;
+  /** Auth is injected by the consumer (e.g. { authorization: "Bearer sk-..." }); the kit never stores keys */
+  headers?: Record<string, string>;
+  /** Defaults to "gpt-4o-mini" */
+  model?: string;
+  /** Defaults to 60000ms; aborts the request on timeout */
+  timeoutMs?: number;
+  /** Merged into the request body (e.g. { enable_thinking: false, temperature: 0.2 }) */
+  extraBody?: Record<string, unknown>;
+}
+
+/**
+ * Direct transport to any OpenAI-compatible /chat/completions endpoint
+ * (OpenAI, DeepSeek, Moonshot, Ollama, vLLM, your own gateway...).
+ * Where the key lives — browser (local tools, prototypes, internal apps)
+ * or your backend (multi-user production) — is the consumer's call.
+ */
+export function createOpenAiCompatibleTransport(opts: OpenAiCompatibleOptions): AiTransport {
+  const base = opts.baseUrl.replace(/\/+$/, "");
+  const model = opts.model ?? "gpt-4o-mini";
+  const timeoutMs = opts.timeoutMs ?? 60_000;
+  return {
+    async complete(req, callOpts) {
+      const ctrl = new AbortController();
+      const timer = setTimeout(
+        () => ctrl.abort(new Error(`request timed out after ${timeoutMs}ms`)),
+        timeoutMs,
+      );
+      const onOuterAbort = () => ctrl.abort(callOpts?.signal?.reason);
+      callOpts?.signal?.addEventListener("abort", onOuterAbort, { once: true });
+      try {
+        const res = await fetch(`${base}/chat/completions`, {
+          method: "POST",
+          headers: { "content-type": "application/json", ...opts.headers },
+          body: JSON.stringify({
+            model,
+            messages: [
+              { role: "system", content: req.system },
+              { role: "user", content: req.user },
+            ],
+            ...(req.maxTokens !== undefined ? { max_tokens: req.maxTokens } : {}),
+            ...opts.extraBody,
+          }),
+          signal: ctrl.signal,
+        });
+        if (!res.ok) {
+          const text = await res.text().catch(() => "");
+          throw new Error(`LLM request failed: HTTP ${res.status} ${text.slice(0, 300)}`);
+        }
+        const data = (await res.json()) as {
+          choices?: Array<{ message?: { content?: string }; finish_reason?: string }>;
+        };
+        const choice = data.choices?.[0];
+        const content = choice?.message?.content;
+        if (typeof content !== "string") {
+          throw new Error("LLM response missing choices[0].message.content");
+        }
+        if (choice?.finish_reason === "length") throw new TruncatedOutputError();
+        return { content };
+      } finally {
+        clearTimeout(timer);
+        callOpts?.signal?.removeEventListener("abort", onOuterAbort);
+      }
+    },
+  };
+}
+
 /** mock transport：按序回放输出（eval 离线层零 token 回归），或按请求动态生成 */
 export function createMockTransport(
   outputs: string[] | ((req: AiChatRequest) => string),

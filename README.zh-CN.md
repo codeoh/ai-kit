@@ -23,7 +23,7 @@
 
 | # | 你要决定的事 | 包内对应入口 |
 |---|---|---|
-| 1 | 怎么连模型？ | `createApiTransport(send)` —— 映射到你的后端代理；**包永不持有 API key** |
+| 1 | 怎么连模型？ | 三选一：`createOpenAiCompatibleTransport({ baseUrl, headers })` 直连任意 OpenAI 兼容端点（OpenAI / DeepSeek / Moonshot / Ollama / vLLM…）；`createApiTransport(send)` 走你的后端代理；或自己实现 `AiTransport`。包永不存储 key——key 放哪由你决定 |
 | 2 | 结果存哪里？ | `createMemoryStore()` 或 `createLocalStorageStore(prefix?)` |
 | 3 | AI 做什么、返回什么？ | `defineAiScene({ id, output, prompt })` —— ~40 行声明 |
 | 4 | 你的字段什么含义？ | `DataProfile` 档案文件，放在**你自己的**仓库（`profiles/<entity>.json`） |
@@ -80,8 +80,10 @@ import { createApiTransport, createLocalStorageStore, createSceneController } fr
 
 const ctrl = createSceneController({
   scene: ticketSummary,
+  // 方式 A：直连——一行搞定，任意 OpenAI 兼容端点（本地工具/内网应用/原型推荐）：
+  // transport: createOpenAiCompatibleTransport({ baseUrl: "https://api.deepseek.com/v1", headers: { authorization: `Bearer ${key}` } })
+  // 方式 B：走后端代理（多用户生产环境推荐，key 留在服务端）：
   transport: createApiTransport(async (req) => {
-    // 你的后端代理：鉴权、模型 key、审计全在服务端
     const r = await fetch("/api/ai-chat", { method: "POST", body: JSON.stringify(req) }).then((x) => x.json());
     return { content: r.content, truncated: r.truncated };
   }),
@@ -119,6 +121,8 @@ const report = await runCases([
 expect(report.passed).toBe(report.total); // 全绿 = 接入完成
 ```
 
+> 注意：直连方式会把 API key 暴露在客户端——本地工具、内网应用、原型没问题；多用户生产环境请改走后端代理。
+
 从此改提示词、换模型，都是秒级回归，而不是刷新页面碰运气。
 
 ## 七条强制不变量
@@ -141,7 +145,7 @@ expect(report.passed).toBe(report.total); // 全绿 = 接入完成
 
 ```bash
 pnpm install
-pnpm test       # 39 个测试，含 5 条 golden 门禁
+pnpm test       # 44 个测试，含 5 条 golden 门禁
 pnpm build      # tsup: esm + cjs + d.ts
 pnpm typecheck
 ```
