@@ -14,5 +14,5 @@ export type { AiChatRequest, AiChatResult, AiTransport, OpenAiCompatibleOptions 
 export { createLocalStorageStore, createMemoryStore } from "./store";
 export type { AiCacheStore } from "./store";
 export { buildCacheKey, hashContent } from "./cacheKey";
-export { createSceneController, defineAiScene, runSceneOnce } from "./scene";
+export { createSceneController, defineAiScene, runScene } from "./scene";
 export type { SceneController, SceneControllerConfig, SceneState, SceneStatus } from "./scene";

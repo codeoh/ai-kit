@@ -1,8 +1,4 @@
-<div align="center">
-
 # ai-kit
-
-**把 AI 以“类型化函数”的方式嵌进你的产品，而不是聊天。**
 
 [![npm version](https://img.shields.io/npm/v/ai-kit.svg)](https://www.npmjs.com/package/ai-kit)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
@@ -11,53 +7,86 @@
 
 [English](./README.md) | [简体中文](./README.zh-CN.md)
 
-</div>
+ai-kit 把你的业务数据变成**经校验、带引用溯源的结构化 AI 输出**——摘要、评分、推荐、抽取——跑在任意 OpenAI 兼容 API 之上。
 
-ai-kit 是一个零依赖、框架无关的 TypeScript 运行时，服务一类**不是聊天机器人**的 AI 功能——摘要、评分、推荐、抽取：单步调用、结构化输出。
+你声明 **AI 要做什么**（场景）和 **你的数据是什么意思**（语义契约），包负责拼 prompt、调模型、校验输出，返回类型化结果。
 
-你只描述 *AI 要做什么* 和 *你的数据是什么意思*，管线剩下的部分全由包托管：prompt 组装、模型调用、防幻觉校验、缓存、回归测试。
+## 它解决什么问题
 
-## 一分钟看懂
+调模型是容易的部分——`openai` 和 `ai` SDK 已经做得很好：
 
 ```ts
-import { defineAiScene, createOpenAiCompatibleTransport, createSceneController } from "ai-kit";
+const res = await client.chat.completions.create({ model: "gpt-4o-mini", messages: [...] });
+const raw = res.choices[0].message.content; // 一个字符串。然后呢？
+```
 
-// 1. 声明 AI 要做什么
+`raw` 是个字符串。要让它**可用**，这些活都归你：解析 JSON、检查输出语言、核对引用的记录 id 是否真实存在、剔除坏条目、把数字改成程序计算以防模型编造、按用户做缓存，以及每次改完提示词把这些全部重新验证一遍。
+
+ai-kit 承包了这一整层：
+
+```ts
+import { defineAiScene, createOpenAiCompatibleTransport, runScene } from "ai-kit";
+
+// 1. AI 做什么，输出什么结构
 const scene = defineAiScene({
   id: "ticket_summary",
   output: { kind: "sections", sections: ["summary", "actions", "risks"] },
   prompt: { role: "你是支持团队助手。", task: "归纳给定的工单。" },
 });
 
-// 2. 接上模型、缓存、身份、语言
-const ctrl = createSceneController({
-  scene,
-  transport: createOpenAiCompatibleTransport({
-    baseUrl: "https://api.deepseek.com/v1",
-    headers: { authorization: `Bearer ${KEY}` },
-  }),
-  store: createMemoryStore(),
-  identity: () => user.id,   // 只进缓存键，不进 prompt
-  scope: () => teamName,
-  lang: () => "zh",
-  records: () => tickets,
+// 2. 怎么连模型——任意 OpenAI 兼容端点
+const transport = createOpenAiCompatibleTransport({
+  baseUrl: "https://api.deepseek.com/v1",
+  headers: { authorization: `Bearer ${process.env.API_KEY}` },
 });
 
-// 3. 渲染——强类型、带引用溯源的输出
-ctrl.subscribe((state) => {
-  if (state.status === "ok") render(state.result);
+// 3. 业务数据进，结构化结果出
+const result = await runScene(scene, transport, {
+  lang: "zh",
+  records: tickets, // [{ id: "t1", title: "Billing dispute", body: "...", ... }]
 });
-ctrl.refresh();
+
+// result = {
+//   summary: [{ text: "Orion 提出重复发票 INV-88 的退款申请，周五升级通话。", refs: ["t1"] }],
+//   actions: [{ text: "张三负责跟进本周工单。", refs: ["t1", "t2"] }],
+//   risks:   [{ text: "staging 权限审批阻塞新成员接入。", refs: ["t3"] }]
+// }
 ```
 
-输出里的每个论断都带 `refs` 指回输入记录；数字由你的代码计算，模型只负责措辞；坏条目被剔除，好条目照常展示。
+每条 `text` 是一句话、语言符合 `lang`；每条 `refs` 都是真实存在的输入 id——编造的直接剔除；数字来自你的代码，不来自模型。
 
-## 为什么是 ai-kit？
+## `runScene` 内部发生了什么
 
-- **语义契约**——字段含义、缺失回退、locale 事实注入 prompt，让 AI 真正理解你的数据，而不是靠猜
-- **七条强制不变量**——在 prompt 和解析两层强制执行的防幻觉 guards；消费方只能加规则，不能删
-- **Golden eval**——零 token 的回放式质量门禁；改提示词、换模型都是秒级回归，不用刷新页面碰运气
-- **管道内置**——按身份+范围+内容+语言做键的缓存、防抖、单在途、软失败：每个 AI 功能都要重写一遍的代码，这里只写一次
+1. **拼 prompt**——角色 + 任务 + 七条强制不变量 + 你的契约（字段含义、回退口径、locale 事实）+ 记录 JSON
+2. **调 transport**——你提供的那个（直连或自己的后端）
+3. **解析并校验**——抠出 JSON、对照输入 id 强制 refs 白名单、剔除坏条目（软失败）、超长文本截断
+4. **返回类型化结果**——`sections` 或 `dimensions`；结构整体不对就抛错，不让垃圾流过去
+
+七条不变量（输出语言、专有名词逐字保留、数字程序统计、refs 白名单、禁止编造、紧凑 JSON、每条一句话）注入每个 prompt，并在解析层再次强制。你可以加规则，不能删。
+
+## 上质量门禁（真正的回报）
+
+写 golden case——真实数据快照 + 回放模型输出 + 断言，零 token：
+
+```ts
+import { runCases, assertLangIs, assertRefsSubset, assertCovers } from "ai-kit/eval";
+
+const report = await runCases([
+  {
+    name: "中文模式输出中文 + 引用合法",
+    lang: "zh",
+    input: { records: snapshot },
+    mockOutput: mockModelJson,
+    asserts: [assertLangIs("zh"), assertRefsSubset(ids), assertCovers(["回滚"])],
+  },
+], { scene });
+```
+
+跑进 CI。从此改提示词、换模型，都是秒级回归。
+
+## 要做 UI？
+
+`createSceneController` 在 `runScene` 之上加应用层：按身份+范围+内容+语言做键的缓存、防抖、单在途、失败不写缓存，外加一个可订阅的状态机（`idle | empty | pending | ok | error`）。不含框架——`state.result` 用 Vue、React 或任何东西渲染。见[完整指南](./docs/guide.zh-CN.md)。
 
 ## 快速开始
 
@@ -65,27 +94,7 @@ ctrl.refresh();
 npm install ai-kit
 ```
 
-1. **描述你的数据**——写一份 `DataProfile` 文件：字段含义、回退口径、PII
-2. **声明场景**——`defineAiScene({ id, output, prompt, profile })`，约 40 行
-3. **接上控制器**——`createSceneController({ scene, transport, store, ... })`，任意框架渲染
-4. **上质量门禁**——用 `runCases` 加 golden case，跑进 CI
-
-完整图文步骤：**[完整指南](./docs/guide.zh-CN.md)**
-
-## 连接任意模型
-
-任何 OpenAI 兼容端点开箱即用——OpenAI、DeepSeek、Moonshot、Ollama、vLLM：
-
-```ts
-createOpenAiCompatibleTransport({ baseUrl: "https://api.deepseek.com/v1", headers: { authorization: `Bearer ${key}` } })
-```
-
-希望 key 留在自己服务器？用 `createApiTransport(send)` 走你的后端代理，或者自己实现只有一个方法的 `AiTransport` 接口。
-
-## 文档
-
-- [完整指南（中文）](./docs/guide.zh-CN.md) · [Full guide (English)](./docs/guide.md)
-- [七条强制不变量](./docs/guide.zh-CN.md#七条强制不变量)
+完整 walkthrough——契约、控制器、eval：**[guide.zh-CN.md](./docs/guide.zh-CN.md)** · [English](./docs/guide.md)
 
 ## 开发
 
@@ -95,6 +104,8 @@ pnpm test       # 44 个测试，含 5 条 golden 门禁
 pnpm build      # tsdown: esm + cjs + d.ts
 pnpm typecheck
 ```
+
+无运行时依赖。Node >= 18，浏览器可用。
 
 ## 许可
 

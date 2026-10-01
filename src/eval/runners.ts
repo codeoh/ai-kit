@@ -1,6 +1,6 @@
 import type { AiTransport } from "../transport";
 import type { SceneDeclaration, SceneResult } from "../types";
-import { runSceneOnce } from "../scene";
+import { runScene } from "../scene";
 import { createMockTransport } from "../transport";
 
 export interface GoldenCase {
@@ -133,7 +133,7 @@ export async function runCases(cases: GoldenCase[], opts: RunCasesOptions = {}):
     const transport = opts.transport ? opts.transport(c) : createMockTransport([c.mockOutput ?? ""]);
     const ctx: GoldenContext = { input: c.input };
     try {
-      ctx.result = await runSceneOnce<SceneResult>(scene, transport, {
+      ctx.result = await runScene<SceneResult>(scene, transport, {
         lang: c.lang,
         records: c.input.records,
       });

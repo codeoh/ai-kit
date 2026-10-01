@@ -11,7 +11,7 @@ export function defineAiScene(d: SceneDeclaration): SceneDeclaration {
 }
 
 /** 单次执行（纯路径）：prompt 组装 -> transport -> 解析+guards。eval 与控制器共用 */
-export async function runSceneOnce<T extends SceneResult>(
+export async function runScene<T extends SceneResult>(
   scene: SceneDeclaration,
   transport: AiTransport,
   input: { lang: "zh" | "en"; records: unknown[]; stats?: unknown },
@@ -110,7 +110,7 @@ export function createSceneController<T extends SceneResult>(
     const myRun = ++run;
     set({ status: "pending" });
     try {
-      const result = await runSceneOnce<T>(scene, transport, {
+      const result = await runScene<T>(scene, transport, {
         lang: lang(),
         records: recs,
         stats: stats?.(recs),

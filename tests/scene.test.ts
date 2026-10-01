@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createSceneController, runSceneOnce, type SceneState } from "../src/scene";
+import { createSceneController, runScene, type SceneState } from "../src/scene";
 import { createMemoryStore } from "../src/store";
 import { createMockTransport, type AiTransport } from "../src/transport";
 import type { SectionsResult } from "../src/types";
@@ -35,7 +35,7 @@ function mockTransport(outputs: string[]): AiTransport {
   return createMockTransport(outputs);
 }
 
-describe("runSceneOnce", () => {
+describe("runScene", () => {
   it("组装 prompt 并解析输出", async () => {
     const seen: string[] = [];
     const transport: AiTransport = {
@@ -44,7 +44,7 @@ describe("runSceneOnce", () => {
         return { content: goodOutput };
       },
     };
-    const r = await runSceneOnce<SectionsResult>(scene, transport, {
+    const r = await runScene<SectionsResult>(scene, transport, {
       lang: "zh",
       records,
     });
