@@ -2,3 +2,5 @@ node_modules/
 .tmp/
 dist/
 *.tsbuildinfo
+vitest.config.ts.timestamp-*
+tsup.config.bundled_*
