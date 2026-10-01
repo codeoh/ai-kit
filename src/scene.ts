@@ -5,6 +5,11 @@ import { readEnvelope, writeEnvelope, type AiCacheStore } from "./store";
 import type { AiTransport } from "./transport";
 import type { SceneDeclaration, SceneResult } from "./types";
 
+/** 场景声明入口：类型收口用，让"新增一个 AI 场景"从这一行开始 */
+export function defineAiScene(d: SceneDeclaration): SceneDeclaration {
+  return d;
+}
+
 /** 单次执行（纯路径）：prompt 组装 -> transport -> 解析+guards。eval 与控制器共用 */
 export async function runSceneOnce<T extends SceneResult>(
   scene: SceneDeclaration,
