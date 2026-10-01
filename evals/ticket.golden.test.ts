@@ -1,0 +1,174 @@
+import { readFileSync } from "node:fs";
+import { describe, expect, it } from "vitest";
+import {
+  assertCovers,
+  assertLangIs,
+  assertNoError,
+  assertNounsVerbatim,
+  assertRefsSubset,
+  runCases,
+} from "../src/eval";
+import { SceneStructureError, validateDataProfile, type SceneDeclaration } from "../src";
+import type { DataProfile } from "../src";
+
+// ---- Contract: loaded from repo file and validated (same path as CI) ----
+const profile: DataProfile = validateDataProfile(
+  JSON.parse(readFileSync(new URL("../profiles/ticket.json", import.meta.url), "utf-8")),
+);
+
+const ticketScene: SceneDeclaration = {
+  id: "ticket_summary",
+  output: { kind: "sections", sections: ["summary", "actions", "risks"] },
+  prompt: { role: "You are a support-team assistant.", task: "Summarize the given tickets into the three sections." },
+  profile,
+  limits: { itemMaxLen: 120, maxItems: 10 },
+};
+
+const triageScene: SceneDeclaration = {
+  id: "ticket_triage",
+  output: { kind: "dimensions", dims: ["severity", "urgency", "effort", "risk"] },
+  prompt: { role: "You are a ticket triage assistant.", task: "Score the given tickets on the four dimensions." },
+  profile,
+};
+
+// ---- Fixture: realistic snapshot mixing English and Chinese bodies (the classic pitfall) ----
+const tickets = [
+  {
+    id: "t1",
+    title: "Billing dispute",
+    body: "Customer Orion Corp requests a refund for duplicate invoice INV-88; escalation call scheduled Friday.",
+    status: "open",
+    team: "Platform",
+    assignee: "张三",
+  },
+  {
+    id: "t2",
+    title: "部署回滚",
+    body: "周四晚发布后接口超时，已执行回滚，观察指标平稳。",
+    status: "closed",
+    team: "Platform",
+    assignee: "张三",
+  },
+  {
+    id: "t3",
+    title: "Access request",
+    body: "New teammate needs staging access; waiting for security approval.",
+    status: "pending",
+    team: "Infra",
+    assignee: "李四",
+  },
+];
+const ids = ["t1", "t2", "t3"];
+
+describe("ticket golden eval (acceptance gate)", () => {
+  it("5 golden cases all green", async () => {
+    const report = await runCases(
+      [
+        {
+          name: "1. zh mode outputs Chinese + proper nouns kept verbatim + key point covered",
+          lang: "zh",
+          scene: ticketScene,
+          input: { records: tickets },
+          mockOutput: JSON.stringify({
+            summary: [
+              { text: "Orion 公司就重复发票 INV-88 提出退款申请，周五安排升级通话。", refs: ["t1"] },
+              { text: "周四发布出现接口超时，已执行回滚并观察。", refs: ["t2"] },
+            ],
+            actions: [{ text: "张三负责本周工单跟进。", refs: ["t1", "t2"] }],
+            risks: [{ text: "staging 权限审批仍在等待，可能阻塞新成员接入。", refs: ["t3"] }],
+          }),
+          asserts: [
+            assertLangIs("zh"),
+            assertNounsVerbatim(["Orion", "INV-88"]),
+            assertRefsSubset(ids),
+            assertCovers(["回滚"]),
+          ],
+        },
+        {
+          name: "2. refs whitelist: fabricated id dropped, legal id kept",
+          lang: "zh",
+          scene: ticketScene,
+          input: { records: tickets },
+          mockOutput: JSON.stringify({
+            summary: [{ text: "Tickets moving normally.", refs: ["t1", "fake-id-9"] }],
+            actions: [],
+            risks: [],
+          }),
+          asserts: [
+            assertRefsSubset(ids),
+            ({ result }) => {
+              const r = result as Record<string, { text: string; refs: string[] }[]>;
+              expect(r.summary[0]?.refs).toEqual(["t1"]);
+            },
+          ],
+        },
+        {
+          name: "3. soft-fail: bad items dropped, good items kept",
+          lang: "zh",
+          scene: ticketScene,
+          input: { records: tickets },
+          mockOutput: JSON.stringify({
+            summary: [
+              { text: "", refs: ["t1"] },
+              "not an object",
+              { text: "工单已回滚并观察指标。", refs: ["t2"] },
+            ],
+            actions: [],
+            risks: [],
+          }),
+          asserts: [
+            assertNoError(),
+            ({ result }) => {
+              const r = result as Record<string, { text: string; refs: string[] }[]>;
+              expect(r.summary).toHaveLength(1);
+              expect(r.summary[0]?.text).toContain("回滚");
+              expect(r.summary[0]?.refs).toEqual(["t2"]);
+            },
+          ],
+        },
+        {
+          name: "4. structure error: non-JSON output fails as a whole (SceneStructureError)",
+          lang: "zh",
+          scene: ticketScene,
+          input: { records: tickets },
+          mockOutput: "Sorry, I cannot complete this task.",
+          asserts: [
+            ({ error }) => {
+              expect(error).toBeInstanceOf(SceneStructureError);
+            },
+          ],
+        },
+        {
+          name: "5. dimensions output: triage scores with reasons and refs whitelist",
+          lang: "zh",
+          scene: triageScene,
+          input: { records: tickets },
+          mockOutput: JSON.stringify({
+            severity: { score: 4, reason: "重复发票涉及退款。", refs: ["t1"] },
+            urgency: { score: 3, reason: "周五安排升级通话。", refs: ["t1"] },
+            effort: { score: 2, reason: "回滚已完成。", refs: ["t2"] },
+            risk: { score: 3, reason: "staging 审批阻塞新成员。", refs: ["t3"] },
+          }),
+          asserts: [
+            assertNoError(),
+            assertRefsSubset(ids),
+            ({ result }) => {
+              const r = result as Record<string, { score: number }>;
+              expect(r.severity?.score).toBe(4);
+              expect(r.risk?.score).toBe(3);
+            },
+            assertCovers(["退款"]),
+          ],
+        },
+      ],
+      { scene: ticketScene },
+    );
+
+    const failed = report.results.filter((r) => !r.ok);
+    if (failed.length) {
+      console.error("golden failures:", JSON.stringify(failed, null, 2));
+    }
+    expect(report.total).toBe(5);
+    expect(report.passed).toBe(5);
+  });
+});

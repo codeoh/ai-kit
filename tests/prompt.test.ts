@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { buildSystemPrompt, buildUserPrompt } from "../src/prompt";
 import { validateDataProfile, type SceneDeclaration } from "../src";
-import activityProfile from "../profiles/activity.json";
+import activityProfile from "../profiles/ticket.json";
 
 const scene: SceneDeclaration = {
   id: "activity_summary",
@@ -23,8 +23,8 @@ describe("buildSystemPrompt", () => {
   });
   it("注入语义档案（含缺失回退口径）", () => {
     const s = buildSystemPrompt(scene, "zh");
-    expect(s).toContain("数据语义档案 · 实体：activity");
-    expect(s).toContain("归组一律用 customerName");
+    expect(s).toContain("数据语义档案 · 实体：ticket");
+    expect(s).toContain("compute it from createdAt/resolvedAt");
     expect(s).toContain("未上线能力");
   });
   it("输出契约会列出声明的段落键", () => {

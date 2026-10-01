@@ -1,0 +1,16 @@
+{
+  "entity": "ticket",
+  "fields": [
+    { "name": "id", "meaning": "Ticket unique id, the only legal value for refs", "authoritative": true },
+    { "name": "title", "meaning": "Ticket title" },
+    { "name": "body", "meaning": "Ticket body, may be written in English" },
+    { "name": "status", "meaning": "Ticket status", "dict": "open | pending | closed" },
+    { "name": "team", "meaning": "Owning team name, the grouping key", "authoritative": true },
+    { "name": "assignee", "meaning": "Assignee person name, proper-noun protected", "authoritative": true, "pii": true },
+    { "name": "slaHours", "meaning": "Resolved SLA in hours", "fallback": "List API does not return this field; compute it from createdAt/resolvedAt on the client. Never let the model guess numbers." }
+  ],
+  "unavailable": ["Cross-system customer identity mapping"],
+  "localeFacts": [
+    "Ticket body may be written in English; when lang=zh it must be translated into Chinese"
+  ]
+}
