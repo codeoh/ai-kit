@@ -1,0 +1,18 @@
+{
+  "entity": "activity",
+  "fields": [
+    { "name": "id", "meaning": "活动记录唯一 id，refs 引用凭据", "authoritative": true },
+    { "name": "title", "meaning": "活动标题" },
+    { "name": "content", "meaning": "活动内容/周报原文，可能是英文" },
+    { "name": "type", "meaning": "活动类型", "dict": "5=任务，其余见系统字典" },
+    { "name": "status", "meaning": "活动状态", "dict": "1=进行中 2=已完成 3=已关闭（status=3 不可更新/删除）" },
+    { "name": "customerName", "meaning": "客户名称，按客户归组的权威字段", "authoritative": true },
+    { "name": "customerCode", "meaning": "客户编码", "fallback": "列表接口不返回该字段，恒为空；归组一律用 customerName" },
+    { "name": "ownerName", "meaning": "真实负责人人名，专有名词保护对象", "authoritative": true, "pii": true }
+  ],
+  "unavailable": ["按 customerCode 跨系统关联出货数据"],
+  "localeFacts": [
+    "全局 locale 仅 zh-CN / en-US",
+    "活动 content 可能是英文周报，lang=zh 时必须译成中文"
+  ]
+}

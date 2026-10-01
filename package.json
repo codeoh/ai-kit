@@ -1,0 +1,20 @@
+{
+  "name": "ai-kit",
+  "version": "0.1.0",
+  "private": true,
+  "description": "业务数据 -> LLM -> 结构化输出 的前端运行时：场景声明 / 防幻觉 guards / 缓存 / golden eval",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./eval": "./src/eval/index.ts"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.8"
+  }
+}
