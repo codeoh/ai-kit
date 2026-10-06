@@ -9,7 +9,7 @@ The full integration walkthrough. The public API is four functions:
 | `defineScene({...})` | Declare once: what the AI does, the output shape, the optional contract |
 | `runScene(scene, { model, records, lang, retries? })` | Call: data in, validated result out |
 | `openai({ model, baseURL?, apiKey? })` | Built-in model helper for any OpenAI-compatible endpoint |
-| `evaluate(scene, cases)` | Golden-case quality gate (from `ai-kit/eval`) |
+| `evaluate(scene, cases)` | Quality regression tests (baseline replay) (from `ai-kit/eval`) |
 
 The model itself is the only convention: a function `({ system, prompt }) => Promise<string>`. Any SDK adapts in two lines.
 
@@ -142,7 +142,7 @@ What you get for free inside `runScene`:
 - **Soft-fail** — malformed items dropped, valid ones survive; only structural failures throw
 - **Self-correction** — with `retries`, the validation error is fed back to the model for a fixed attempt
 
-### Step 5: gate quality with golden cases
+### Step 5: lock in quality with baseline tests
 
 ```ts
 import { evaluate, lang, refs, covers } from "ai-kit/eval";
@@ -183,4 +183,4 @@ One shared asset: the semantic contract. `ai-kit` injects it into prompts; an MC
 
 - `about` contract format or output-shape change → **major**
 - New assertion helpers / guards → **minor**
-- Prompt wording changes → **patch**, and must pass the golden gate before release
+- Prompt wording changes → **patch**, and must pass the baseline tests before release

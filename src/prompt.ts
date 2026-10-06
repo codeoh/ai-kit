@@ -3,8 +3,8 @@ import { truncateRecords } from "./promptUtils";
 import type { AiLang, Scene } from "./types";
 
 /**
- * system prompt：角色 + 任务 + 七条强制不变量 + 语义契约 + 追加规则 + 输出契约。
- * 七条不变量包内固定追加，消费方只能通过 extraRules 增量添加，不可关闭。
+ * system prompt：角色 + 任务 + 7 条硬规则 + 字段说明 + 追加规则 + 输出契约。
+ * 7 条硬规则由包固定注入，消费方只能通过 extraRules 追加，不可关闭。
  */
 export function buildSystemPrompt(scene: Scene, lang: AiLang): string {
   const langName = lang === "zh" ? "中文" : "English";

@@ -9,7 +9,7 @@
 | `defineScene({...})` | 声明一次：AI 做什么、输出什么形状、可选契约 |
 | `runScene(scene, { model, records, lang, retries? })` | 调用：数据进，校验过的结果出 |
 | `openai({ model, baseURL?, apiKey? })` | 内置模型帮助函数，任意 OpenAI 兼容端点 |
-| `evaluate(scene, cases)` | golden case 质量门禁（来自 `ai-kit/eval`） |
+| `evaluate(scene, cases)` | 质量回归测试：录一次真实输出当基准（来自 `ai-kit/eval`） |
 
 模型本身是唯一约定：一个函数 `({ system, prompt }) => Promise<string>`。任何 SDK 两行适配。
 
@@ -135,12 +135,12 @@ const result = await runScene(ticketSummary, {
 
 `runScene` 内部白送的东西：
 
-- **Prompt 组装**——角色 + 任务 + 七条强制不变量 + 你的契约 + 记录数据
+- **Prompt 组装**——角色 + 任务 + 7 条硬规则 + 你的字段说明 + 记录数据
 - **refs 白名单**——编造的引用 id 对照输入 id 集被剔除
 - **软失败**——坏条目剔除、好条目保留；只有结构错误才整体抛出
 - **自校验重试**——`retries > 0` 时，校验错误喂回模型修正重试
 
-### 第 5 步：上 golden 门禁
+### 第 5 步：用基准用例锁住质量
 
 ```ts
 import { evaluate, lang, refs, covers } from "ai-kit/eval";
@@ -161,7 +161,7 @@ const report = await evaluate(ticketSummary, [
 
 内置断言助手：`lang`、`nouns`、`refs`、`covers`、`noError`。
 
-## 七条强制不变量
+## 那 7 条硬规则
 
 注入每个 system prompt，并在解析层再次强制；消费方只能通过 `extraRules` 增量添加，不能关闭：
 
@@ -181,4 +181,4 @@ const report = await evaluate(ticketSummary, [
 
 - `about` 契约格式或输出形状变更 → **major**
 - 新增断言助手 / guards → **minor**
-- prompt 措辞变更 → **patch**，且发版前必须过 golden 门禁
+- prompt 措辞变更 → **patch**，且发版前必须跑过基准用例

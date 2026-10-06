@@ -7,61 +7,77 @@
 
 [English](./README.md) | [简体中文](./README.zh-CN.md)
 
-ai-kit turns your business data into validated, citation-backed, structured AI output — summaries, scores, recommendations, extractions — over **any** model, through **any** SDK you already use.
+ai-kit turns your business data into **structured AI output with citations you can check** — summaries, scores, recommendations, extractions. Any model, any SDK you already use.
 
-You declare **what the AI should do** (`defineScene`) and **what your data means** (the `about` contract). `runScene` assembles the prompt, calls your model function, validates the output, and returns a typed result.
+You write two things: **what the AI should do** (`defineScene`) and **what your fields mean** (`about`). `runScene` does the rest.
 
-## The problem it solves
+## 30 seconds
 
-Calling the model is the easy part — `openai` or the `ai` SDK already do that well:
+```ts
+import { defineScene, openai, runScene } from "ai-kit";
+
+// 1. What the AI should do, and the shape of the output
+const summary = defineScene({
+  task: "Summarize the given support tickets.",
+  sections: ["summary", "actions", "risks"],   // defines the output shape
+});
+
+// 2. Data in, result out
+const result = await runScene(summary, {
+  model: openai({ model: "deepseek-chat", baseURL: "https://api.deepseek.com/v1", apiKey: process.env.API_KEY }),
+  records: tickets,        // [{ id: "t1", title: "Billing dispute", ... }]
+  lang: "zh",
+});
+
+// result = {
+//   summary: [{ text: "Orion requested a refund for duplicate invoice INV-88; escalation call Friday.", refs: ["t1"] }],
+//   actions: [{ text: "Zhang San follows up this week's tickets.", refs: ["t1", "t2"] }],
+//   risks:   [{ text: "staging approval blocks the new teammate.", refs: ["t3"] }]
+// }
+```
+
+## Why you need it
+
+Calling the model is easy — `openai` or the `ai` SDK do that in two lines:
 
 ```ts
 const res = await client.chat.completions.create({ model: "gpt-4o-mini", messages: [...] });
 const raw = res.choices[0].message.content; // a string. And then?
 ```
 
-`raw` is a string. Everything that makes it *usable* is on you: parsing the JSON, checking the language, verifying that cited record ids actually exist, dropping malformed items, computing the numbers so the model can't invent them, and re-checking all of it after every prompt tweak.
+The hard part is everything after `raw`: extracting the JSON, checking the language, verifying that cited record ids actually exist, dropping malformed items, computing the numbers so the model can't invent them, caching per user — and re-checking all of it after every prompt tweak.
 
-ai-kit is that whole layer:
+ai-kit is that whole layer.
 
-```ts
-import { defineScene, openai, runScene } from "ai-kit";
+## What happens inside `runScene`
 
-// 1. What the AI should do, and the shape of its output
-const summary = defineScene({
-  task: "Summarize the given support tickets.",
-  sections: ["summary", "actions", "risks"],
-});
+1. **Assembles the prompt** and hands it to your model: role + your task + 7 hard rules + your field notes + this batch of records
+2. **Calls your model function**
+3. **Checks the output**: extracts the JSON, matches citation ids against the real records, drops malformed items, truncates over-length text
+4. **Returns a typed result**; structurally broken output throws (or, with `retries`, the model gets to fix it)
 
-// 2. Data in, validated result out
-const result = await runScene(summary, {
-  model: openai({ model: "deepseek-chat", baseURL: "https://api.deepseek.com/v1", apiKey: process.env.API_KEY }),
-  records: tickets, // [{ id: "t1", title: "Billing dispute", ... }]
-  lang: "zh",
-  retries: 1, // validation failures are fed back to the model once
-});
+Those 7 hard rules ship with every request. You can't turn them off, and you don't need to:
 
-// result = {
-//   summary: [{ text: "Orion 提出重复发票 INV-88 的退款申请，周五升级通话。", refs: ["t1"] }],
-//   actions: [{ text: "张三负责跟进本周工单。", refs: ["t1", "t2"] }],
-//   risks:   [{ text: "staging 审批阻塞新成员接入。", refs: ["t3"] }]
-// }
-```
+| Rule | Why it exists |
+|---|---|
+| Output in the language you asked for (`lang`) | English source text dragging Chinese output off course — the most common bug |
+| Proper nouns stay verbatim (names, products, ticket ids, numbers) | `VVDN`, `RFP`, `INV-88` translated or renamed means the information is gone |
+| Numbers come from you, never from the model | Models will happily invent quantities and amounts |
+| Citations may only reference record ids that exist | Models invent an id; clicking it leads nowhere |
+| No content → empty array | Models would rather make something up than say "nothing" |
+| JSON only | One stray sentence means extra parsing |
+| One sentence per item, no numbering | Your render layer stops doing cleanup |
 
-Every `text` is one sentence, in the requested language. Every `refs` entry is a real input id — fabricated ones are dropped, malformed items are removed, the rest survives.
+## Any model
 
-## Any model, any SDK
-
-The only convention is one function: `({ system, prompt }) => Promise<string>`.
-
-- **OpenAI-compatible** (OpenAI, DeepSeek, Moonshot, Ollama, vLLM) — built in: `openai({ model, baseURL?, apiKey? })`
-- **Any other SDK** — wrap your client in two lines:
+One convention: a model is just a function — `({ system, prompt }) => Promise<string>`.
 
 ```ts
-import Anthropic from "@anthropic-ai/sdk";
-const anthropic = new Anthropic();
+// OpenAI-compatible (OpenAI / DeepSeek / Moonshot / Ollama / vLLM) — built in
+const model = openai({ model: "deepseek-chat", baseURL: "...", apiKey: "..." });
 
-const model = async ({ system, prompt }) => {
+// Anthropic — two lines around the client you already have
+const model2 = async ({ system, prompt }) => {
   const r = await anthropic.messages.create({
     model: "claude-sonnet-4-5", max_tokens: 1024, system,
     messages: [{ role: "user", content: prompt }],
@@ -70,20 +86,11 @@ const model = async ({ system, prompt }) => {
 };
 ```
 
-The kit never stores keys, never wraps HTTP you didn't ask for, and never cares which SDK you picked.
+**Why is only `openai()` built in?** Because the OpenAI wire format is the industry's de facto standard — one implementation covers OpenAI, DeepSeek, Moonshot, Ollama, vLLM and dozens more, while Anthropic is a single vendor. Both integrations cost you two lines; shipping more would turn a provider matrix into our maintenance burden — that's ai-sdk's job, not ours.
 
-## What happens inside `runScene`
+## Quality regression tests (`evaluate`)
 
-1. **Assemble the prompt** — role + task + seven mandatory invariants + your `about` contract (field meanings, fallback rules, locale facts) + the records as JSON
-2. **Call your model function**
-3. **Parse and validate** — extract the JSON, enforce the refs whitelist against input ids, drop malformed items (soft-fail), truncate over-length text
-4. **Return a typed result** — sections or scores; on structural failure, throw (or feed the error back and retry with `retries`)
-
-The seven invariants (output language, verbatim proper nouns, program-computed stats, refs whitelist, no fabrication, compact JSON, one sentence per item) are injected into every prompt and enforced again at parse time. You can add rules; you cannot remove these.
-
-## Add quality gates (the real payoff)
-
-Write golden cases — real data snapshots + replayed model outputs + assertions, zero tokens:
+After you tweak a prompt or swap models, how do you know quality didn't regress? **Record one real output as a baseline**, then re-run and check it automatically:
 
 ```ts
 import { evaluate, lang, refs, covers } from "ai-kit/eval";
@@ -91,15 +98,30 @@ import { evaluate, lang, refs, covers } from "ai-kit/eval";
 const report = await evaluate(summary, [
   {
     name: "zh mode outputs Chinese + citations legal",
-    lang: "zh",
-    records: snapshot,
-    mock: mockModelJson,
-    assert: [lang("zh"), refs(ids), covers(["rollback"])],
+    records: realTickets,     // real data snapshot
+    mock: savedModelOutput,   // the output you recorded earlier
+    assert: [lang("zh"), refs(allIds), covers(["rollback"])],
   },
 ]);
 ```
 
-Run them in CI. From now on, every prompt tweak or model swap is a seconds-level regression.
+No live model calls, zero tokens, seconds to run, straight into CI. This is what turns "change one line of prompt, refresh the page, squint at the output" into a seconds-long feedback loop.
+
+## A real case
+
+Our first scene (customer activity summary) took **8 rounds of debugging, roughly 1.5 person-days per round**, half of it spent on bugs the model couldn't see:
+
+- The list endpoint doesn't return `customerCode`, so grouping by customer was always empty — **the feature was completely unreachable for users**, found by digging through browser network logs
+- The global locale is `zh-CN/en-US`; the code compared `=== "en"`, so English mode silently did nothing
+- Weekly reports were written in English; the "keep proper nouns verbatim" rule dragged the Chinese output into English
+
+With ai-kit:
+
+- Those lessons went into the contract file on day one: `{ name: "customerCode", fallback: "not returned by this endpoint; group by customerName" }`, the locale facts, proper-noun protection
+- The 7 hard rules ride along with every request; fabricated citation ids get dropped automatically
+- The checks live in CI: after a prompt or model change you know within seconds whether anything regressed
+
+Result: the first scene took about 1.5 days, each additional scene about half a day — and from the second scene on, none of the above bugs came back.
 
 ## Getting started
 
@@ -107,13 +129,13 @@ Run them in CI. From now on, every prompt tweak or model swap is a seconds-level
 npm install ai-kit
 ```
 
-Full walkthrough — contracts, output kinds, evals, retries: **[guide.md](./docs/guide.md)** · [简体中文](./docs/guide.zh-CN.md)
+Full walkthrough: **[guide.md](./docs/guide.md)** · [简体中文](./docs/guide.zh-CN.md)
 
 ## Development
 
 ```bash
 pnpm install
-pnpm test       # 41 tests, including the 5-case golden gate
+pnpm test       # 41 tests, including the 5 baseline quality cases
 pnpm build      # tsdown: esm + cjs + d.ts
 pnpm typecheck
 ```
