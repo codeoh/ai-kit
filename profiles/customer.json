@@ -1,0 +1,16 @@
+{
+  "entity": "customer_activity",
+  "fields": [
+    { "name": "id", "meaning": "Activity unique id, the only legal value for refs", "authoritative": true },
+    { "name": "customerName", "meaning": "Customer name — the grouping key", "authoritative": true },
+    { "name": "customerCode", "meaning": "Customer code",
+      "fallback": "The list endpoint does not return this field; it is always empty. Group by customerName instead." },
+    { "name": "content", "meaning": "Activity body / weekly report, may be written in English" },
+    { "name": "ownerName", "meaning": "Owner person name — keep verbatim", "pii": true }
+  ],
+  "unavailable": ["Cross-system identity mapping", "Contract renewal dates"],
+  "localeFacts": [
+    "The global locale is only zh-CN / en-US",
+    "Activity content may be an English weekly report; when lang=zh it must be translated into Chinese"
+  ]
+}

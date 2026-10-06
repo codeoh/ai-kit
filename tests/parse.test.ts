@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { extractJson, parseSceneOutput } from "../src/parse";
 import { defineScene } from "../src";
-import { filterRefIds, sanitizeDimensions, sanitizeSections, SceneStructureError, toRefIds } from "../src/guards";
+import { countDroppedRefs, filterRefIds, sanitizeDimensions, sanitizeSections, SceneStructureError, toRefIds } from "../src/guards";
 
 const ids = new Set(["t1", "t2", "t3"]);
 
@@ -60,15 +60,32 @@ describe("sanitizeSections", () => {
 });
 
 describe("sanitizeDimensions", () => {
-  it("缺维度给空壳占位，score 非数字归 0，refs 白名单", () => {
+  it("非法 score 归 null（早期静默变0，会把语义错误的低分伪装成正常零分）", () => {
     const out = sanitizeDimensions(
       { budget: { score: Number.NaN, reason: "r", refs: ["fake"] }, need: "bad" },
       ["budget", "authority", "need"],
       ids,
     );
-    expect(out.budget).toEqual({ score: 0, reason: "r", refs: [] });
-    expect(out.authority).toEqual({ score: 0, reason: "", refs: [] });
-    expect(out.need).toEqual({ score: 0, reason: "", refs: [] });
+    expect(out.budget).toEqual({ score: null, reason: "r", refs: [], droppedRefs: 1 });
+    expect(out.authority).toEqual({ score: null, reason: "", refs: [] });
+    expect(out.need).toEqual({ score: null, reason: "", refs: [] });
+  });
+  it("字符串数字也归 null，不当0 分处理", () => {
+    const out = sanitizeDimensions({ sev: { score: "4" } }, ["sev"], ids);
+    expect(out.sev.score).toBeNull();
+  });
+  it("合法的 0 分要原样保留，与 null 可区分", () => {
+    const out = sanitizeDimensions({ sev: { score: 0, reason: "无风险" } }, ["sev"], ids);
+    expect(out.sev.score).toBe(0);
+  });
+  it("记录被剔除的引用数，>0 说明模型编了 id", () => {
+    const out = sanitizeDimensions(
+      { sev: { score: 3, reason: "r", refs: ["t1", "ghost1", "ghost2"] } },
+      ["sev"],
+      ids,
+    );
+    expect(out.sev.refs).toEqual(["t1"]);
+    expect(out.sev.droppedRefs).toBe(2);
   });
 });
 
@@ -87,5 +104,9 @@ describe("helpers", () => {
   });
   it("filterRefIds 按白名单过滤", () => {
     expect(filterRefIds(["t1", "x", "t2"], ids)).toEqual(["t1", "t2"]);
+  });
+  it("countDroppedRefs 数出编造的 id 个数", () => {
+    expect(countDroppedRefs(["t1", "x", "t2", "y"], ids)).toBe(2);
+    expect(countDroppedRefs(["t1", "t2"], ids)).toBe(0);
   });
 });

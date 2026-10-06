@@ -49,7 +49,7 @@ describe("runScene", () => {
 
   it("lang 缺省为 en", async () => {
     const model: Model = async (req) => {
-      expect(req.system).toContain("输出语言必须是English");
+      expect(req.system).toContain("Output language must be English");
       return JSON.stringify({ summary: [{ text: "ok", refs: ["t1"] }], actions: [], risks: [] });
     };
     await runScene(scene, { model, records: tickets });
