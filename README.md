@@ -1,9 +1,6 @@
 # ai-kit
 
-[![npm version](https://img.shields.io/npm/v/ai-kit.svg)](https://www.npmjs.com/package/ai-kit)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
-[![Node](https://img.shields.io/badge/node-%E2%89%A518-brightgreen.svg)](./package.json)
-[![TypeScript](https://img.shields.io/badge/TypeScript-strict-blue.svg)](./tsconfig.json)
+MIT · Node >= 18 · TypeScript strict · browsers included · no runtime dependencies
 
 [English](./README.md) | [简体中文](./README.zh-CN.md)
 

@@ -1,9 +1,6 @@
 # ai-kit
 
-[![npm version](https://img.shields.io/npm/v/ai-kit.svg)](https://www.npmjs.com/package/ai-kit)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
-[![Node](https://img.shields.io/badge/node-%E2%89%A518-brightgreen.svg)](./package.json)
-[![TypeScript](https://img.shields.io/badge/TypeScript-strict-blue.svg)](./tsconfig.json)
+MIT · Node >= 18 · TypeScript strict · 浏览器可用 · 无运行时依赖
 
 [English](./README.md) | [简体中文](./README.zh-CN.md)
 
@@ -32,16 +29,16 @@ result.summary;   // [{ text: "Orion 提出重复发票 INV-88 的退款申请�
 
 ## 它能干什么
 
-| 能力 | 说明 |
-|---|---|
-| 归纳 / 摘要 / 推荐 | `sections: ["summary", "actions", "risks"]`——按你指定的段落输出条目列表 |
-| 评分 / 打标 / 抽取 | `scores: ["severity", "urgency"]`——按维度给出分数、理由和引用 |
-| 输出语言跟着你走 | `lang: "zh"` 时英文原文会被翻译成中文，专有名词原样保留 |
-| 每条结论带引用 | `refs` 只能引用真实存在的记录 id，编造的直接剔除，前端可做成可点角标溯源 |
-| 数字不交给模型 | 数量、金额、时间由你的代码统计后传进去，模型只负责措辞 |
-| 格式错误不拖垮整体 | 坏条目丢掉、好条目保留；只有整体结构不对才报错 |
-| 校验失败让模型自己改 | `retries: 1`——把错误信息喂回模型重试一遍 |
-| 改 prompt 后自动查退化 | 把一次真实输出录下来当基准，之后每次改动自动重跑检查 |
+| 能力              | 说明                                                         |
+| --------------- | ---------------------------------------------------------- |
+| 归纳 / 摘要 / 推荐    | `sections: ["summary", "actions", "risks"]`——按你指定的段落输出条目列表 |
+| 评分 / 打标 / 抽取    | `scores: ["severity", "urgency"]`——按维度给出分数、理由和引用           |
+| 输出语言跟着你走        | `lang: "zh"` 时英文原文会被翻译成中文，专有名词原样保留                         |
+| 每条结论带引用         | `refs` 只能引用真实存在的记录 id，编造的直接剔除，前端可做成可点角标溯源                  |
+| 数字不交给模型         | 数量、金额、时间由你的代码统计后传进去，模型只负责措辞                                |
+| 格式错误不拖垮整体       | 坏条目丢掉、好条目保留；只有整体结构不对才报错                                    |
+| 校验失败让模型自己改      | `retries: 1`——把错误信息喂回模型重试一遍                                |
+| 改 prompt 后自动查退化 | 把一次真实输出录下来当基准，之后每次改动自动重跑检查                                 |
 
 ## 一个真实功能，从头到尾
 
