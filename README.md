@@ -2,9 +2,9 @@
 
 [English](./README.md) | [简体中文](./README.zh-CN.md)
 
-Turns your business data into **structured AI output with citations you can check** — summaries, scores, recommendations, extractions. Any model, any SDK you already use.
+Turns a batch of business records into **a structured result you can render directly** — summaries, scores, recommendations. Any model, any SDK you already use.
 
-Calling the model takes two lines, but what comes back is a string, and everything after that is on you — extracting the JSON, checking the language, verifying that cited record ids exist, dropping malformed items, computing the numbers, re-checking everything after each prompt tweak. ai-kit is that whole layer.
+One AI analysis should be a function, not a pile of prompt strings. Declare what it does and what shape comes back; call it as many times as you like and get the same shape every time. ai-kit holds the three things that normally get scattered: the prompt, the output contract, and the regression check that tells you a prompt edit didn't break anything.
 
 ## Getting Started
 
@@ -35,16 +35,17 @@ result.summary;   // [{ text: "Orion requested a refund for duplicate invoice IN
 
 ## What it does for you
 
-| Capability | What it means |
+| You write | What you get back |
 |---|---|
-| Summaries / recommendations | `sections: ["summary", "actions", "risks"]` — grouped item lists under the headings you choose |
-| Scoring / classification / extraction | `scores: ["severity", "urgency"]` — a score, a reason and citations per dimension |
-| Output language you control | With `lang: "zh"`, English source text is translated; proper nouns stay verbatim |
-| Every claim carries citations | `refs` may only reference record ids that exist; fabricated ones are dropped. Render them as clickable citations |
-| Numbers never come from the model | Counts, amounts and dates are computed by your code and passed in; the model only phrases them |
-| Malformed items don't ruin the batch | Bad items dropped, good ones survive; only a structurally broken output throws |
-| The model can fix its own mistakes | `retries: 1` feeds the validation error back for another attempt |
-| Quality regression checks | Record one real output as a baseline; every later change is re-checked automatically |
+| `sections: ["summary", "actions", "risks"]` | The same three keys, every call. Each entry is `{ text, refs }` |
+| `scores: ["severity", "urgency"]` | The same dimensions, every call. Each is `{ score, reason, refs }` |
+| `lang: "zh"` | Chinese output, even from English source text; proper nouns stay verbatim |
+| Nothing about JSON | Whether your endpoint enforces the shape or not, you get parseable JSON back. Malformed items are dropped, good ones survive |
+| `stats: computeStats` | Counts and amounts computed by your code and passed in — the model only phrases them |
+| `retries: 1` | A structurally broken output gets one more attempt, with the error fed back |
+| `evaluate(scene, cases)` | Zero-token regression checks against a recorded real output |
+
+**One honest caveat.** `refs` can only point at record ids that exist, and fabricated ones are dropped — so you know every id in the result is real. What we can't do is tell you whether the sentence attached to that id is true. When that matters, keep the numbers in your own code (`stats`) and treat the text as a draft to review. It's a drafting assistant, not a source of truth.
 
 ## One real feature, end to end
 

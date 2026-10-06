@@ -7,11 +7,11 @@ The full integration walkthrough. The public API is four functions:
 | Export | Purpose |
 |---|---|
 | `defineScene({...})` | Declare once: what the AI does, the output shape, the optional contract |
-| `runScene(scene, { model, records, lang, retries? })` | Call: data in, validated result out |
-| `openai({ model, baseURL?, apiKey? })` | Built-in model helper for any OpenAI-compatible endpoint |
+| `runScene(scene, { model, records, lang, retries?, signal? })` | Call: data in, validated result out |
+| `openai({ model, baseURL?, apiKey?, structured? })` | Built-in model helper for any OpenAI-compatible endpoint |
 | `evaluate(scene, cases)` | Quality regression tests (baseline replay) (from `ai-kit/eval`) |
 
-The model itself is the only convention: a function `({ system, prompt }) => Promise<string>`. Any SDK adapts in two lines.
+The model itself is the only convention: a function `({ system, prompt, signal?, jsonSchema? }) => Promise<string>`. Any SDK adapts in two lines — the last two arguments are optional, so an adapter that only destructures `system` and `prompt` keeps working unchanged.
 
 ## Walkthrough (~30 minutes)
 
@@ -135,12 +135,46 @@ const result = await runScene(ticketSummary, {
 });
 ```
 
-What you get for free inside `runScene`:
+What happens inside `runScene`:
 
-- **Prompt assembly** — role + task + seven mandatory invariants + your contract + the records
-- **Refs whitelist** — fabricated citation ids are dropped against the input id set
+- **Prompt assembly** — role + task + seven hard rules + your contract + the records
+- **Structured output** — the shape is derived from your declaration and sent to the endpoint as a JSON schema when it supports one. Ends that don't are handled automatically: see below
+- **Refs whitelist** — ids that don't exist in the input are dropped, and the count lands in `droppedRefs` so you can tell "no sources" from "fabricated sources"
 - **Soft-fail** — malformed items dropped, valid ones survive; only structural failures throw
-- **Self-correction** — with `retries`, the validation error is fed back to the model for a fixed attempt
+- **Self-correction** — with `retries`, the validation error is fed back to the model for another attempt
+
+### Step 4b. what the endpoint supports
+
+The output shape is enforced where the endpoint allows it, and worked around where it doesn't. Three levels, tried in order and then remembered:
+
+| Level | Sent | What you're guaranteed |
+|---|---|---|
+| 1 | `json_schema` with `strict` | The shape and types are enforced by the model itself. This is the only level where structurally broken output can't happen |
+| 2 | `json_object` | Output is valid JSON. Field names and types still come from the prompt |
+| 3 | nothing extra | Output shape relies on the prompt alone |
+
+DeepSeek sits at level 2 — it doesn't support `json_schema`. OpenAI sits at level 1. You don't have to pick; the level is detected on the first call and reused after that.
+
+Note that levels 2 and 3 still need the parsing layer, so a badly shaped response can still throw `SceneStructureError`. That's expected, and it's why `retries` exists.
+
+If your gateway rejects unknown request fields, turn the whole thing off:
+
+```ts
+openai({ model: "gpt-4o-mini", structured: false })   // never sends response_format
+```
+
+### Step 4c. cancelling a call
+
+Pass a `signal` and the request actually stops — the built-in `openai()` forwards it to `fetch`. Nothing partial comes back; the call rejects.
+
+```ts
+const ctrl = new AbortController();
+button.onclick = () => ctrl.abort();
+
+await runScene(ticketSummary, { model, records, signal: ctrl.signal });
+```
+
+A cancelled call is not retried, even with `retries` set — cancelling is your decision, not a failure to recover from.
 
 ### Step 5: lock in quality with baseline tests
 
@@ -163,17 +197,31 @@ Run them in CI (`pnpm test`). Every prompt tweak or model swap is a seconds-leve
 
 Built-in assertion helpers: `lang`, `nouns`, `refs`, `covers`, `noError`.
 
-## The seven mandatory invariants
+## The seven hard rules
 
-Injected into every system prompt and enforced again at parse time; consumers can add rules via `extraRules` but never remove these:
+Injected into every system prompt, in Chinese or English depending on `lang`. You can add rules with `extraRules` but not remove these.
+
+Of the seven, only one is enforced mechanically: **rule 4**, the `refs` whitelist. The rest live in the prompt, which is not a guarantee — a model can still break them. If that matters for your use, check the result yourself, or compute it in code.
 
 1. Output language = `lang`, regardless of input language (with explicit translation requirement)
 2. Proper nouns (names, products, ticket ids, numbers) stay verbatim
-3. Statistics are never produced by the model — only quoted from program-computed stats
-4. `refs` may only reference input record ids (whitelist enforced; fabricated ids dropped)
-5. Nothing to say → empty arrays; fabrication forbidden
+3. Statistics are not computed by the model — only quoted from what your `stats` function produced
+4. `refs` may only reference input record ids ← **this one is enforced in code**
+5. Nothing to say → empty arrays
 6. Output one compact JSON object only
 7. One sentence per item, no numbering
+
+## Scores, and why `null` shows up
+
+`score` is `number | null`. `null` means the model didn't give a usable number (missing, wrong type, NaN). A real `0` stays `0`.
+
+This distinction matters: in a 0-to-5 severity scale, `0` is a real answer, and quietly turning a type error into `0` would look like a confident low score when the model actually said nothing useful.
+
+```ts
+if (result.severity.score === null) {
+  // the model didn't answer this dimension
+}
+```
 
 ## How it relates to MCP
 
