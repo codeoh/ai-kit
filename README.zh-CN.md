@@ -1,12 +1,18 @@
-# ai-kit
-
-MIT · Node >= 18 · TypeScript strict · 浏览器可用 · 无运行时依赖
+# ai-kit [![npm](https://img.shields.io/npm/v/ai-kit.svg)](https://www.npmjs.com/package/ai-kit) [![node](https://img.shields.io/badge/node-%E2%89%A518-brightgreen.svg)](./package.json) [![license](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE) [![typescript](https://img.shields.io/badge/TypeScript-strict-blue.svg)](./tsconfig.json)
 
 [English](./README.md) | [简体中文](./README.zh-CN.md)
 
-ai-kit 把你的业务数据变成**带引用、可校验的结构化 AI 输出**——摘要、评分、推荐、抽取。任意模型、任意你已经在用的 SDK 都能接。
+把业务数据变成**带引用、可校验的结构化 AI 输出**——摘要、评分、推荐、抽取。任意模型、任意你已经在用的 SDK 都能接。
 
-为什么需要它：调模型本身两行就够，但拿到的那是个字符串，往下全是活——抠 JSON、验语言、核对模型引用的记录 id 是否真实存在、丢掉格式错误的条目、数字改成代码算、每次改 prompt 全部重验。ai-kit 就是这一整层。
+调模型本身两行就够，但拿到的那是个字符串，往下全是活：抠 JSON、验语言、核对模型引用的记录 id 是否真实存在、丢掉格式错误的条目、数字改成代码算、每次改 prompt 全部重验。ai-kit 就是这一整层。
+
+## Getting Started
+
+```bash
+npm install ai-kit
+```
+
+完整图文步骤见 **[完整指南](./docs/guide.zh-CN.md)**。
 
 ## 30 秒上手
 
@@ -157,15 +163,7 @@ const report = await evaluate(activitySummary, [
 ]);
 ```
 
-## 快速开始
-
-```bash
-npm install ai-kit
-```
-
-完整图文步骤：**[完整指南](./docs/guide.zh-CN.md)** · [English](./docs/guide.md)
-
-## 开发
+## Development
 
 ```bash
 pnpm install
@@ -176,6 +174,6 @@ pnpm typecheck
 
 无运行时依赖。Node >= 18，浏览器可用。
 
-## 许可
+## License
 
 [MIT](./LICENSE)

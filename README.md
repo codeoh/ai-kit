@@ -1,12 +1,18 @@
-# ai-kit
-
-MIT · Node >= 18 · TypeScript strict · browsers included · no runtime dependencies
+# ai-kit [![npm](https://img.shields.io/npm/v/ai-kit.svg)](https://www.npmjs.com/package/ai-kit) [![node](https://img.shields.io/badge/node-%E2%89%A518-brightgreen.svg)](./package.json) [![license](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE) [![typescript](https://img.shields.io/badge/TypeScript-strict-blue.svg)](./tsconfig.json)
 
 [English](./README.md) | [简体中文](./README.zh-CN.md)
 
-ai-kit turns your business data into **structured AI output with citations you can check** — summaries, scores, recommendations, extractions. Any model, any SDK you already use.
+Turns your business data into **structured AI output with citations you can check** — summaries, scores, recommendations, extractions. Any model, any SDK you already use.
 
-Why you need it: calling the model takes two lines, but what comes back is a string, and everything after that is on you — extracting the JSON, checking the language, verifying that cited record ids exist, dropping malformed items, computing the numbers, re-checking everything after each prompt tweak. ai-kit is that whole layer.
+Calling the model takes two lines, but what comes back is a string, and everything after that is on you — extracting the JSON, checking the language, verifying that cited record ids exist, dropping malformed items, computing the numbers, re-checking everything after each prompt tweak. ai-kit is that whole layer.
+
+## Getting Started
+
+```bash
+npm install ai-kit
+```
+
+Full walkthrough: **[guide.md](./docs/guide.md)**.
 
 ## 30 seconds
 
@@ -156,14 +162,6 @@ const report = await evaluate(activitySummary, [
   },
 ]);
 ```
-
-## Getting started
-
-```bash
-npm install ai-kit
-```
-
-Full walkthrough: **[guide.md](./docs/guide.md)** · [简体中文](./docs/guide.zh-CN.md)
 
 ## Development
 
