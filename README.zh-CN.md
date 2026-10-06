@@ -1,4 +1,4 @@
-# ai-kit [![npm](https://img.shields.io/npm/v/ai-kit.svg)](https://www.npmjs.com/package/ai-kit) [![node](https://img.shields.io/badge/node-%E2%89%A518-brightgreen.svg)](./package.json) [![license](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE) [![typescript](https://img.shields.io/badge/TypeScript-strict-blue.svg)](./tsconfig.json)
+# ai-kit [![npm](https://badgen.net/badge/npm/v0.1.0/red?icon=npm)](https://www.npmjs.com/package/ai-kit) [![node](https://badgen.net/badge/node/%3E%3D18/green?icon=node)](./package.json) [![license](https://badgen.net/badge/license/MIT/blue?icon=osi)](./LICENSE) [![typescript](https://badgen.net/badge/TypeScript/strict/blue?icon=typescript)](./tsconfig.json)
 
 [English](./README.md) | [简体中文](./README.zh-CN.md)
 
