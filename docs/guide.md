@@ -18,7 +18,7 @@ The model itself is the only convention: a function `({ system, prompt, signal?,
 ### Step 0: install
 
 ```bash
-npm install ai-kit
+npm install @codeoh/ai-kit
 ```
 
 Node >= 18. Runs in browsers and Node; TypeScript types included.
@@ -59,7 +59,7 @@ What each annotation buys you:
 One AI feature = one declaration:
 
 ```ts
-import { defineScene, validateDataProfile, type DataProfile } from "ai-kit";
+import { defineScene, validateDataProfile, type DataProfile } from "@codeoh/ai-kit";
 import ticketProfileJson from "../profiles/ticket.json";
 
 const ticketProfile: DataProfile = validateDataProfile(ticketProfileJson);
@@ -84,7 +84,7 @@ Multi-turn chat is out of scope by design.
 OpenAI-compatible endpoints (OpenAI, DeepSeek, Moonshot, Ollama, vLLM) are built in:
 
 ```ts
-import { openai } from "ai-kit";
+import { openai } from "@codeoh/ai-kit";
 
 const model = openai({
   model: "deepseek-chat",
@@ -124,7 +124,7 @@ const model3 = ({ system, prompt }) =>
 ### Step 4: run
 
 ```ts
-import { runScene } from "ai-kit";
+import { runScene } from "@codeoh/ai-kit";
 
 const result = await runScene(ticketSummary, {
   model,
@@ -179,7 +179,7 @@ A cancelled call is not retried, even with `retries` set — cancelling is your 
 ### Step 5: lock in quality with baseline tests
 
 ```ts
-import { evaluate, lang, refs, covers } from "ai-kit/eval";
+import { evaluate, lang, refs, covers } from "@codeoh/ai-kit/eval";
 
 const report = await evaluate(ticketSummary, [
   {

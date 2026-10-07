@@ -1,4 +1,4 @@
-# ai-kit [![npm](https://badgen.net/badge/npm/v0.1.0/red?icon=npm)](https://www.npmjs.com/package/ai-kit) [![node](https://badgen.net/badge/node/%3E%3D18/green?icon=node)](./package.json) [![license](https://badgen.net/badge/license/MIT/blue?icon=osi)](./LICENSE) [![typescript](https://badgen.net/badge/TypeScript/strict/blue?icon=typescript)](./tsconfig.json)
+# ai-kit [![npm](https://badgen.net/badge/npm/v0.1.0/red?icon=npm)](https://www.npmjs.com/package/@codeoh/ai-kit) [![node](https://badgen.net/badge/node/%3E%3D18/green?icon=node)](./package.json) [![license](https://badgen.net/badge/license/MIT/blue?icon=osi)](./LICENSE) [![typescript](https://badgen.net/badge/TypeScript/strict/blue?icon=typescript)](./tsconfig.json)
 
 [English](./README.md) | [简体中文](./README.zh-CN.md)
 
@@ -9,7 +9,7 @@ One AI analysis should be a function, not a pile of prompt strings. Declare what
 ## Getting Started
 
 ```bash
-npm install ai-kit
+npm install @codeoh/ai-kit
 ```
 
 Full walkthrough: **[guide.md](./docs/guide.md)**.
@@ -17,7 +17,7 @@ Full walkthrough: **[guide.md](./docs/guide.md)**.
 ## 30 seconds
 
 ```ts
-import { defineScene, openai, runScene } from "ai-kit";
+import { defineScene, openai, runScene } from "@codeoh/ai-kit";
 
 const summary = defineScene({
   task: "Summarize the given support tickets.",
@@ -152,7 +152,7 @@ const model3 = ({ system, prompt }) =>
 Record one real output as a baseline; every later change re-runs and checks it. No live model calls, zero tokens, seconds to run, straight into CI:
 
 ```ts
-import { evaluate, lang, refs, covers } from "ai-kit/eval";
+import { evaluate, lang, refs, covers } from "@codeoh/ai-kit/eval";
 
 const report = await evaluate(activitySummary, [
   {

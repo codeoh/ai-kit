@@ -1,4 +1,4 @@
-# ai-kit [![npm](https://badgen.net/badge/npm/v0.1.0/red?icon=npm)](https://www.npmjs.com/package/ai-kit) [![node](https://badgen.net/badge/node/%3E%3D18/green?icon=node)](./package.json) [![license](https://badgen.net/badge/license/MIT/blue?icon=osi)](./LICENSE) [![typescript](https://badgen.net/badge/TypeScript/strict/blue?icon=typescript)](./tsconfig.json)
+# ai-kit [![npm](https://badgen.net/badge/npm/v0.1.0/red?icon=npm)](https://www.npmjs.com/package/@codeoh/ai-kit) [![node](https://badgen.net/badge/node/%3E%3D18/green?icon=node)](./package.json) [![license](https://badgen.net/badge/license/MIT/blue?icon=osi)](./LICENSE) [![typescript](https://badgen.net/badge/TypeScript/strict/blue?icon=typescript)](./tsconfig.json)
 
 [English](./README.md) | [简体中文](./README.zh-CN.md)
 
@@ -9,7 +9,7 @@
 ## Getting Started
 
 ```bash
-npm install ai-kit
+npm install @codeoh/ai-kit
 ```
 
 完整图文步骤见 **[完整指南](./docs/guide.zh-CN.md)**。
@@ -17,7 +17,7 @@ npm install ai-kit
 ## 30 秒上手
 
 ```ts
-import { defineScene, openai, runScene } from "ai-kit";
+import { defineScene, openai, runScene } from "@codeoh/ai-kit";
 
 const summary = defineScene({
   task: "归纳这些支持工单。",
@@ -152,7 +152,7 @@ const model3 = ({ system, prompt }) =>
 把一次真实输出**录下来**当基准，之后每次改动自动重跑并检查，不调用真实模型、零 token 成本、几秒出结果，直接进 CI：
 
 ```ts
-import { evaluate, lang, refs, covers } from "ai-kit/eval";
+import { evaluate, lang, refs, covers } from "@codeoh/ai-kit/eval";
 
 const report = await evaluate(activitySummary, [
   {

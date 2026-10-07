@@ -18,7 +18,7 @@
 ### 第 0 步：安装
 
 ```bash
-npm install ai-kit
+npm install @codeoh/ai-kit
 ```
 
 Node >= 18；浏览器与 Node 均可运行；含 TypeScript 类型。
@@ -57,7 +57,7 @@ Node >= 18；浏览器与 Node 均可运行；含 TypeScript 类型。
 一个 AI 功能 = 一份声明：
 
 ```ts
-import { defineScene, validateDataProfile, type DataProfile } from "ai-kit";
+import { defineScene, validateDataProfile, type DataProfile } from "@codeoh/ai-kit";
 import ticketProfileJson from "../profiles/ticket.json";
 
 const ticketProfile: DataProfile = validateDataProfile(ticketProfileJson);
@@ -82,7 +82,7 @@ export const ticketSummary = defineScene({
 OpenAI 兼容端点（OpenAI、DeepSeek、Moonshot、Ollama、vLLM）开箱即用：
 
 ```ts
-import { openai } from "ai-kit";
+import { openai } from "@codeoh/ai-kit";
 
 const model = openai({
   model: "deepseek-chat",
@@ -122,7 +122,7 @@ const model3 = ({ system, prompt }) =>
 ### 第 4 步：调用
 
 ```ts
-import { runScene } from "ai-kit";
+import { runScene } from "@codeoh/ai-kit";
 
 const result = await runScene(ticketSummary, {
   model,
@@ -177,7 +177,7 @@ await runScene(ticketSummary, { model, records, signal: ctrl.signal });
 ### 第 5 步：用基准用例锁住质量
 
 ```ts
-import { evaluate, lang, refs, covers } from "ai-kit/eval";
+import { evaluate, lang, refs, covers } from "@codeoh/ai-kit/eval";
 
 const report = await evaluate(ticketSummary, [
   {
